@@ -1,0 +1,1712 @@
+﻿import { useEffect, useMemo, useState } from 'react'
+import './App.css'
+
+const API_URL =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.DEV ? 'http://localhost:5000' : '')
+const tokenKey = 'promptvault-token'
+const userKey = 'promptvault-user'
+
+function readStoredValue(key) {
+  try {
+    const value = window.localStorage.getItem(key)
+    return value ? JSON.parse(value) : null
+  } catch {
+    return null
+  }
+}
+
+function formatDate(date) {
+  if (!date) return '—'
+  return new Intl.DateTimeFormat('en', {
+    month: 'short',
+    day: 'numeric',
+  }).format(new Date(date))
+}
+
+function promptVariables(content) {
+  return [...new Set([...content.matchAll(/{{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*}}/g)].map((match) => match[1]))]
+}
+
+function App() {
+  const [token, setToken] = useState(() => {
+    try {
+      return window.localStorage.getItem(tokenKey) || ''
+    } catch {
+      return ''
+    }
+  })
+  const [user, setUser] = useState(() => readStoredValue(userKey))
+  const [authMode, setAuthMode] = useState('login')
+  const [authForm, setAuthForm] = useState({
+    name: '',
+    email: '',
+    password: '',
+  })
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [prompts, setPrompts] = useState([])
+  const [collections, setCollections] = useState([])
+  const [loadingPrompts, setLoadingPrompts] = useState(false)
+  const [activeCategory, setActiveCategory] = useState('All prompts')
+  const [selectedCollection, setSelectedCollection] = useState(null)
+  const [collectionPromptIds, setCollectionPromptIds] = useState([])
+  const [collectionDialog, setCollectionDialog] = useState(false)
+  const [promptToCollect, setPromptToCollect] = useState(null)
+  const [query, setQuery] = useState('')
+  const [sortBy, setSortBy] = useState('recent')
+  const [editingPrompt, setEditingPrompt] = useState(null)
+  const [isCreating, setIsCreating] = useState(false)
+  const [historyPrompt, setHistoryPrompt] = useState(null)
+  const [versions, setVersions] = useState([])
+  const [loadingVersions, setLoadingVersions] = useState(false)
+  const [testerPrompt, setTesterPrompt] = useState(null)
+  const [testVariables, setTestVariables] = useState({})
+  const [testResult, setTestResult] = useState(null)
+  const [savedTestRuns, setSavedTestRuns] = useState([])
+  const [compareRunId, setCompareRunId] = useState('')
+  const [runningTest, setRunningTest] = useState(false)
+  const [savingTest, setSavingTest] = useState(false)
+  const sharedRoute = window.location.pathname.match(/^\/share\/(prompt|collection)\/([^/]+)$/)
+
+  useEffect(() => {
+    if (!token) return
+
+    try {
+      window.localStorage.setItem(tokenKey, token)
+    } catch {}
+
+    async function loadPrompts() {
+      setLoadingPrompts(true)
+      try {
+        const response = await fetch(`${API_URL}/api/prompts`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        })
+
+        const data = await response.json()
+        if (!response.ok) {
+          if (response.status === 401) {
+            logout()
+            throw new Error('Your session expired or is no longer valid. Log in again.')
+          }
+          throw new Error(data.message || 'Could not load prompts.')
+        }
+
+        setPrompts(data.prompts || [])
+        const collectionData = await fetch(`${API_URL}/api/collections`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        const collectionBody = await collectionData.json()
+        if (!collectionData.ok) {
+          throw new Error(collectionBody.message || 'Could not load collections.')
+        }
+        setCollections(collectionBody.collections || [])
+      } catch (loadError) {
+        setError(loadError.message)
+      } finally {
+        setLoadingPrompts(false)
+      }
+    }
+
+    loadPrompts()
+  }, [token])
+
+  const categories = useMemo(
+    () => [...new Set(prompts.filter((prompt) => !prompt.archived).map((prompt) => prompt.category))].sort(),
+    [prompts],
+  )
+
+  const activePrompts = useMemo(
+    () => prompts.filter((prompt) => !prompt.archived),
+    [prompts],
+  )
+  const archivedCount = prompts.filter((prompt) => prompt.archived).length
+
+  const visiblePrompts = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase()
+    return prompts
+      .filter((prompt) => {
+        const matchesCategory =
+          activeCategory === 'All prompts'
+            ? !prompt.archived
+            : activeCategory === 'Favorites'
+              ? !prompt.archived && prompt.favorite
+              : activeCategory === 'Archived'
+                ? prompt.archived
+                : activeCategory === 'Collection'
+                  ? collectionPromptIds.includes(prompt.id) && !prompt.archived
+                  : !prompt.archived && prompt.category === activeCategory
+
+        const searchableText = [
+          prompt.title,
+          prompt.description,
+          prompt.content,
+          prompt.category,
+          ...(prompt.tags || []),
+        ]
+          .join(' ')
+          .toLowerCase()
+
+        return matchesCategory && searchableText.includes(normalizedQuery)
+      })
+      .sort((first, second) =>
+        sortBy === 'title'
+          ? first.title.localeCompare(second.title)
+          : new Date(second.updatedAt) - new Date(first.updatedAt),
+      )
+  }, [activeCategory, collectionPromptIds, prompts, query, sortBy])
+
+  function saveTokenAndUser(nextToken, nextUser) {
+    setToken(nextToken)
+    setUser(nextUser)
+
+    try {
+      window.localStorage.setItem(tokenKey, nextToken)
+      window.localStorage.setItem(userKey, JSON.stringify(nextUser))
+    } catch {}
+  }
+
+  function logout() {
+    setToken('')
+    setUser(null)
+    setPrompts([])
+    setCollections([])
+    setSelectedCollection(null)
+    setCollectionPromptIds([])
+    setAuthMode('login')
+
+    try {
+      window.localStorage.removeItem(tokenKey)
+      window.localStorage.removeItem(userKey)
+    } catch {}
+  }
+
+  async function handleAuthSubmit(event) {
+    event.preventDefault()
+    setPending(true)
+    setError('')
+
+    try {
+      const endpoint = authMode === 'login' ? 'login' : 'register'
+      const payload =
+        authMode === 'login'
+          ? {
+              email: authForm.email,
+              password: authForm.password,
+            }
+          : {
+              name: authForm.name,
+              email: authForm.email,
+              password: authForm.password,
+            }
+
+      const response = await fetch(`${API_URL}/api/auth/${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      })
+
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.message || 'Authentication failed.')
+      }
+
+      saveTokenAndUser(data.token, data.user)
+      setAuthForm({ name: '', email: '', password: '' })
+      setNotice(authMode === 'login' ? 'Logged in successfully.' : 'Account created successfully.')
+    } catch (authError) {
+      setError(authError.message)
+    } finally {
+      setPending(false)
+    }
+  }
+
+  async function apiRequest(path, options = {}) {
+    const response = await fetch(`${API_URL}${path}`, {
+      ...options,
+      headers: {
+        ...(options.headers || {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    })
+
+    const data = await response.json().catch(() => ({}))
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        logout()
+        setError('Your session expired or is no longer valid. Log in again.')
+      }
+      throw new Error(data.message || 'Request failed.')
+    }
+
+    return data
+  }
+
+  async function refreshPrompts() {
+    const data = await apiRequest('/api/prompts')
+    setPrompts(data.prompts || [])
+  }
+
+  async function refreshCollections() {
+    const data = await apiRequest('/api/collections')
+    setCollections(data.collections || [])
+  }
+
+  async function openCollection(collection) {
+    try {
+      const data = await apiRequest(`/api/collections/${collection.id}/prompts`)
+      setSelectedCollection(collection)
+      setCollectionPromptIds(data.prompts.map((prompt) => prompt.id))
+      setActiveCategory('Collection')
+    } catch (collectionError) {
+      setError(collectionError.message)
+    }
+  }
+
+  async function saveCollection(collectionData, collectionId = null) {
+    try {
+      const data = await apiRequest(
+        collectionId ? `/api/collections/${collectionId}` : '/api/collections',
+        {
+          method: collectionId ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(collectionData),
+        },
+      )
+      setNotice(data.message)
+      await refreshCollections()
+      if (promptToCollect && !collectionId) {
+        await addPromptToCollection(data.collection.id, promptToCollect.id)
+      }
+      return data.collection
+    } catch (collectionError) {
+      setError(collectionError.message)
+      return null
+    }
+  }
+
+  async function addPromptToCollection(collectionId, promptId) {
+    try {
+      await apiRequest(`/api/collections/${collectionId}/prompts/${promptId}`, {
+        method: 'POST',
+      })
+      await refreshCollections()
+      if (selectedCollection?.id === collectionId) {
+        setCollectionPromptIds((current) => [...new Set([...current, promptId])])
+      }
+      setNotice('Prompt added to collection.')
+    } catch (collectionError) {
+      setError(collectionError.message)
+    }
+  }
+
+  async function removePromptFromCollection(collectionId, promptId) {
+    try {
+      await apiRequest(`/api/collections/${collectionId}/prompts/${promptId}`, {
+        method: 'DELETE',
+      })
+      await refreshCollections()
+      if (selectedCollection?.id === collectionId) {
+        setCollectionPromptIds((current) => current.filter((id) => id !== promptId))
+      }
+      setNotice('Prompt removed from collection.')
+    } catch (collectionError) {
+      setError(collectionError.message)
+    }
+  }
+
+  async function deleteCollection(collectionId) {
+    if (!window.confirm('Delete this collection? Prompts in it will not be deleted.')) return
+    try {
+      await apiRequest(`/api/collections/${collectionId}`, { method: 'DELETE' })
+      if (selectedCollection?.id === collectionId) {
+        setSelectedCollection(null)
+        setCollectionPromptIds([])
+        setActiveCategory('All prompts')
+      }
+      await refreshCollections()
+      setNotice('Collection deleted. Its prompts are unchanged.')
+    } catch (collectionError) {
+      setError(collectionError.message)
+    }
+  }
+
+  async function togglePromptSharing(prompt) {
+    const isPublic = !prompt.isPublic
+    try {
+      const data = await apiRequest(`/api/prompts/${prompt.id}/sharing`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isPublic }),
+      })
+      setPrompts((current) =>
+        current.map((item) => item.id === prompt.id ? data.prompt : item),
+      )
+      if (isPublic && data.prompt.shareId) {
+        const shareUrl = `${window.location.origin}/share/prompt/${data.prompt.shareId}`
+        try {
+          await navigator.clipboard.writeText(shareUrl)
+          setNotice('Public link enabled and copied.')
+        } catch {
+          setNotice(`Public link enabled: ${shareUrl}`)
+        }
+      } else {
+        setNotice('Public sharing disabled.')
+      }
+    } catch (sharingError) {
+      setError(sharingError.message)
+    }
+  }
+
+  async function toggleCollectionSharing(collection) {
+    if (collection.isPublic && collection.shareId) {
+      const shareUrl = `${window.location.origin}/share/collection/${collection.shareId}`
+      try {
+        await navigator.clipboard.writeText(shareUrl)
+        setNotice('Public collection link copied.')
+      } catch {
+        setNotice(`Public collection link: ${shareUrl}`)
+      }
+      return
+    }
+
+    const updated = await saveCollection({ isPublic: true }, collection.id)
+    if (updated?.shareId) {
+      const shareUrl = `${window.location.origin}/share/collection/${updated.shareId}`
+      try {
+        await navigator.clipboard.writeText(shareUrl)
+        setNotice('Public collection link copied.')
+      } catch {
+        setNotice(`Public collection link: ${shareUrl}`)
+      }
+    }
+  }
+
+  async function savePrompt(promptData) {
+    try {
+      if (editingPrompt) {
+        await apiRequest(`/api/prompts/${editingPrompt.id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(promptData),
+        })
+        setNotice('Prompt updated successfully.')
+      } else {
+        await apiRequest('/api/prompts', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(promptData),
+        })
+        setNotice('Prompt saved successfully.')
+      }
+
+      setEditingPrompt(null)
+      setIsCreating(false)
+      await refreshPrompts()
+      return true
+    } catch (saveError) {
+      setError(saveError.message)
+      return false
+    }
+  }
+
+  async function openVersionHistory(prompt) {
+    setHistoryPrompt(prompt)
+    setLoadingVersions(true)
+    setVersions([])
+    try {
+      const data = await apiRequest(`/api/prompts/${prompt.id}/versions`)
+      setVersions(data.versions || [])
+    } catch (historyError) {
+      setError(historyError.message)
+      setHistoryPrompt(null)
+    } finally {
+      setLoadingVersions(false)
+    }
+  }
+
+  async function restoreVersion(version) {
+    if (!historyPrompt) return
+    if (!window.confirm(`Restore version ${version.version}? This will create a new version and keep the history.`)) return
+
+    try {
+      const data = await apiRequest(
+        `/api/prompts/${historyPrompt.id}/versions/${version.version}/restore`,
+        { method: 'POST' },
+      )
+      setNotice(data.message)
+      setHistoryPrompt(null)
+      await refreshPrompts()
+    } catch (restoreError) {
+      setError(restoreError.message)
+    }
+  }
+
+  async function openPromptTester(prompt) {
+    const variableNames = promptVariables(prompt.content)
+    setError('')
+    setTesterPrompt(prompt)
+    setTestVariables(Object.fromEntries(variableNames.map((name) => [name, ''])))
+    setTestResult(null)
+    setSavedTestRuns([])
+    setCompareRunId('')
+
+    try {
+      const data = await apiRequest(`/api/prompts/${prompt.id}/test-results`)
+      setSavedTestRuns(data.testRuns || [])
+    } catch (testHistoryError) {
+      setError(testHistoryError.message)
+    }
+  }
+
+  async function runPromptTest() {
+    if (!testerPrompt) return
+    setRunningTest(true)
+    setError('')
+    setTestResult(null)
+    try {
+      const result = await apiRequest(`/api/prompts/${testerPrompt.id}/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ variables: testVariables }),
+      })
+      setTestResult(result)
+    } catch (testError) {
+      setError(testError.message)
+    } finally {
+      setRunningTest(false)
+    }
+  }
+
+  async function savePromptTest() {
+    if (!testerPrompt || !testResult) return
+    setSavingTest(true)
+    setError('')
+    try {
+      const data = await apiRequest(`/api/prompts/${testerPrompt.id}/test-results`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ variables: testVariables }),
+      })
+      setSavedTestRuns((current) => [data.testRun, ...current])
+      setCompareRunId(String(data.testRun._id || data.testRun.id || ''))
+      setNotice('Test result saved.')
+    } catch (saveError) {
+      setError(saveError.message)
+    } finally {
+      setSavingTest(false)
+    }
+  }
+
+  async function updateFavorite(id, favoriteValue) {
+    try {
+      const prompt = prompts.find((item) => item.id === id)
+      if (!prompt) return
+
+      const updated = await apiRequest(`/api/prompts/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ...prompt, favorite: favoriteValue }),
+      })
+
+      setPrompts((current) =>
+        current.map((item) => (item.id === id ? updated.prompt : item)),
+      )
+    } catch (favoriteError) {
+      setError(favoriteError.message)
+    }
+  }
+
+  async function duplicatePrompt(prompt) {
+    try {
+      await apiRequest(`/api/prompts/${prompt.id}/duplicate`, {
+        method: 'POST',
+      })
+      setNotice('Prompt duplicated.')
+      await refreshPrompts()
+    } catch (duplicateError) {
+      setError(duplicateError.message)
+    }
+  }
+
+  async function toggleArchived(prompt) {
+    const action = prompt.archived ? 'restore' : 'archive'
+    try {
+      const data = await apiRequest(`/api/prompts/${prompt.id}/${action}`, {
+        method: 'POST',
+      })
+      setNotice(data.message)
+      await refreshPrompts()
+    } catch (archiveError) {
+      setError(archiveError.message)
+    }
+  }
+
+  async function deletePrompt(id) {
+    const confirmed = window.confirm('Delete this prompt?')
+    if (!confirmed) return
+
+    try {
+      await apiRequest(`/api/prompts/${id}`, {
+        method: 'DELETE',
+      })
+      setNotice('Prompt deleted.')
+      await refreshPrompts()
+    } catch (deleteError) {
+      setError(deleteError.message)
+    }
+  }
+
+  async function copyPrompt(prompt) {
+    try {
+      await navigator.clipboard.writeText(prompt.content)
+      setNotice('Copied to clipboard.')
+    } catch {
+      setError('Clipboard access failed. Please copy manually.')
+    }
+  }
+
+  const favoriteCount = activePrompts.filter((prompt) => prompt.favorite).length
+  const latestUpdated = activePrompts.length
+    ? activePrompts.reduce(
+        (latest, prompt) =>
+          new Date(prompt.updatedAt) > new Date(latest) ? prompt.updatedAt : latest,
+        activePrompts[0].updatedAt,
+      )
+    : null
+
+  if (sharedRoute) {
+    return <SharedPage type={sharedRoute[1]} shareId={sharedRoute[2]} />
+  }
+
+  if (!token) {
+    return (
+      <div className="auth-shell">
+        <div className="auth-card">
+          <div className="brand auth-brand">
+            <span className="brand-mark" aria-hidden="true">P</span>
+            <span>prompt<span className="brand-light">vault</span></span>
+          </div>
+
+          <div className="auth-header">
+            <p className="eyebrow">A SMART PROMPT LIBRARY</p>
+            <h1>{authMode === 'login' ? 'Welcome back' : 'Create your account'}</h1>
+            <p className="auth-subtitle">
+              {authMode === 'login'
+                ? 'Log in to organize and reuse your best prompts.'
+                : 'Start saving high-quality prompts in one clean workspace.'}
+            </p>
+          </div>
+
+          <form onSubmit={handleAuthSubmit} className="auth-form">
+            {authMode === 'register' && (
+              <label className="form-field">
+                <span>Name</span>
+                <input
+                  type="text"
+                  value={authForm.name}
+                  onChange={(event) =>
+                    setAuthForm((current) => ({ ...current, name: event.target.value }))
+                  }
+                  placeholder="Your full name"
+                  required
+                />
+              </label>
+            )}
+
+            <label className="form-field">
+              <span>Email</span>
+              <input
+                type="email"
+                value={authForm.email}
+                onChange={(event) =>
+                  setAuthForm((current) => ({ ...current, email: event.target.value }))
+                }
+                placeholder="you@example.com"
+                required
+              />
+            </label>
+
+            <label className="form-field">
+              <span>Password</span>
+              <input
+                type="password"
+                value={authForm.password}
+                onChange={(event) =>
+                  setAuthForm((current) => ({ ...current, password: event.target.value }))
+                }
+                placeholder="Enter at least 6 characters"
+                required
+                minLength={6}
+              />
+            </label>
+
+            {error && <div className="inline-error">{error}</div>}
+
+            <button className="primary-button auth-submit" type="submit" disabled={pending}>
+              {pending ? 'Please wait...' : authMode === 'login' ? 'Log in' : 'Create account'}
+            </button>
+          </form>
+
+          <button
+            type="button"
+            className="secondary-button auth-toggle"
+            onClick={() => {
+              setAuthMode((current) => (current === 'login' ? 'register' : 'login'))
+              setError('')
+            }}
+          >
+            {authMode === 'login' ? 'Need an account? Sign up' : 'Already have an account? Log in'}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="brand" aria-label="PromptVault home">
+          <span className="brand-mark" aria-hidden="true">P</span>
+          <span>prompt<span className="brand-light">vault</span></span>
+        </div>
+
+        <div className="sidebar-label">LIBRARY</div>
+        <nav className="library-nav" aria-label="Prompt library">
+          <button
+            className={`nav-item ${activeCategory === 'All prompts' ? 'active' : ''}`}
+            onClick={() => setActiveCategory('All prompts')}
+          >
+            <span className="nav-icon" aria-hidden="true">▤</span>
+            <span>All prompts</span>
+            <span className="nav-count">{prompts.length}</span>
+          </button>
+          <button
+            className={`nav-item ${activeCategory === 'Favorites' ? 'active' : ''}`}
+            onClick={() => setActiveCategory('Favorites')}
+          >
+            <span className="nav-icon favorite-icon" aria-hidden="true">★</span>
+            <span>Favorites</span>
+            <span className="nav-count">{favoriteCount}</span>
+          </button>
+          <button
+            className={`nav-item ${activeCategory === 'Archived' ? 'active' : ''}`}
+            onClick={() => setActiveCategory('Archived')}
+          >
+            <span className="nav-icon" aria-hidden="true">▱</span>
+            <span>Archived</span>
+            <span className="nav-count">{archivedCount}</span>
+          </button>
+        </nav>
+
+        <div className="category-heading">
+          <span className="sidebar-label">CATEGORIES</span>
+          <span className="category-total">{categories.length}</span>
+        </div>
+        <nav className="category-nav" aria-label="Categories">
+          {categories.map((category, index) => (
+            <button
+              className={`nav-item category-item ${activeCategory === category ? 'active' : ''}`}
+              key={category}
+              onClick={() => setActiveCategory(category)}
+            >
+              <span className={`category-dot dot-${index % 4}`} aria-hidden="true" />
+              <span>{category}</span>
+              <span className="nav-count">
+                {activePrompts.filter((prompt) => prompt.category === category).length}
+              </span>
+            </button>
+          ))}
+        </nav>
+
+        <div className="category-heading collection-heading">
+          <span className="sidebar-label">COLLECTIONS</span>
+          <button
+            className="collection-add"
+            onClick={() => {
+              setPromptToCollect(null)
+              setCollectionDialog(true)
+            }}
+            aria-label="Manage collections"
+            title="Manage collections"
+          >
+            +
+          </button>
+        </div>
+        <nav className="category-nav collection-nav" aria-label="Collections">
+          {collections.map((collection, index) => (
+            <button
+              className={`nav-item category-item ${activeCategory === 'Collection' && selectedCollection?.id === collection.id ? 'active' : ''}`}
+              key={collection.id}
+              onClick={() => openCollection(collection)}
+            >
+              <span className={`category-dot dot-${index % 4}`} aria-hidden="true" />
+              <span className="collection-nav-name">{collection.name}</span>
+              {collection.isPublic && <span className="public-indicator" title="Public collection">↗</span>}
+              <span className="nav-count">{collection.promptCount ?? 0}</span>
+            </button>
+          ))}
+          {collections.length === 0 && (
+            <button
+              className="collection-empty-action"
+              onClick={() => {
+                setPromptToCollect(null)
+                setCollectionDialog(true)
+              }}
+            >
+              + Create a collection
+            </button>
+          )}
+        </nav>
+
+        <div className="sidebar-bottom">
+          <div className="storage-card">
+            <span className="storage-icon" aria-hidden="true">◇</span>
+            <div>
+              <strong>{user ? user.name : 'PromptVault'}</strong>
+              <p>{user ? user.email : 'Logged in securely'}</p>
+            </div>
+          </div>
+          <div className="profile">
+            <span className="avatar">{(user?.name || 'U').charAt(0).toUpperCase()}</span>
+            <span className="profile-name">{user ? user.name : 'Workspace'}</span>
+            <button className="logout-button" onClick={logout} type="button">Logout</button>
+          </div>
+        </div>
+      </aside>
+
+      <main className="main-content">
+        <header className="topbar">
+          <div className="breadcrumb">Workspace <span>/</span> {activeCategory}</div>
+          <label className="search-box">
+            <span aria-hidden="true">⌕</span>
+            <input
+              aria-label="Search prompts"
+              placeholder="Search prompts..."
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+            <kbd>⌘ K</kbd>
+          </label>
+        </header>
+
+        <section className="content-area">
+          <div className="welcome-row">
+            <div>
+              <p className="eyebrow">YOUR PERSONAL PROMPT LIBRARY</p>
+              <h1>{activeCategory === 'All prompts' ? 'Good ideas, kept close.' : activeCategory === 'Archived' ? 'Out of sight, still safe.' : activeCategory === 'Collection' ? selectedCollection?.name || 'Collection' : activeCategory}</h1>
+              <p className="welcome-copy">
+                Keep your prompting workflow organized, searchable, and ready whenever inspiration strikes.
+              </p>
+            </div>
+            <button className="primary-button" onClick={() => setIsCreating(true)}>
+              <span aria-hidden="true">＋</span> New prompt
+            </button>
+          </div>
+
+          <div className="stats-row">
+            <div className="stat-card">
+              <span className="stat-icon purple" aria-hidden="true">▤</span>
+              <span className="stat-copy"><strong>{activePrompts.length}</strong><span>Total prompts</span></span>
+            </div>
+            <div className="stat-card">
+              <span className="stat-icon yellow" aria-hidden="true">★</span>
+              <span className="stat-copy"><strong>{favoriteCount}</strong><span>Favorites</span></span>
+            </div>
+            <div className="stat-card">
+              <span className="stat-icon green" aria-hidden="true">◷</span>
+              <span className="stat-copy">
+                <strong>{latestUpdated ? formatDate(latestUpdated) : '—'}</strong>
+                <span>Last updated</span>
+              </span>
+            </div>
+          </div>
+
+          <div className="prompt-section-heading">
+            <div>
+              <h2>{activeCategory === 'All prompts' ? 'Your prompts' : activeCategory === 'Archived' ? 'Archived prompts' : activeCategory}</h2>
+              <span>{visiblePrompts.length} {visiblePrompts.length === 1 ? 'prompt' : 'prompts'}</span>
+            </div>
+            <label className="sort-label">
+              <span>Sort by</span>
+              <select aria-label="Sort prompts" value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
+                <option value="recent">Recently updated</option>
+                <option value="title">Title A to Z</option>
+              </select>
+            </label>
+          </div>
+
+          {error && <div className="storage-warning">{error}</div>}
+
+          {loadingPrompts ? (
+            <div className="loading-state">Loading prompts...</div>
+          ) : visiblePrompts.length > 0 ? (
+            <div className="prompt-grid">
+              {visiblePrompts.map((prompt) => (
+                <article className="prompt-card" key={prompt.id}>
+                  <div className="card-topline">
+                    <span className={`prompt-category ${prompt.category.toLowerCase().replace(/\s+/g, '-')}`}>
+                      <span className={`category-dot dot-${categories.indexOf(prompt.category) % 4}`} aria-hidden="true" />
+                      {prompt.category}
+                    </span>
+                    <button
+                      className={`icon-button star-button ${prompt.favorite ? 'is-favorite' : ''}`}
+                      aria-label={prompt.favorite ? 'Remove from favorites' : 'Add to favorites'}
+                      onClick={() => updateFavorite(prompt.id, !prompt.favorite)}
+                    >
+                      {prompt.favorite ? '★' : '☆'}
+                    </button>
+                  </div>
+                  <h3>{prompt.title}</h3>
+                  <p className="prompt-description">{prompt.description || 'A saved prompt, ready when you need it.'}</p>
+                  <div className="prompt-preview">{prompt.content}</div>
+                  <div className="tag-row">
+                    {(prompt.tags || []).map((tag) => (
+                      <span className="tag" key={`${prompt.id}-${tag}`}>#{tag}</span>
+                    ))}
+                  </div>
+                  <div className="card-footer">
+                    <span className="updated-date">Updated {formatDate(prompt.updatedAt)}</span>
+                    <div className="card-actions">
+                      <button className="text-action" onClick={() => copyPrompt(prompt)}>
+                        <span aria-hidden="true">▢</span> Copy
+                      </button>
+                      <button
+                        className="text-action history-action"
+                        onClick={() => {
+                          setPromptToCollect(prompt)
+                          setCollectionDialog(true)
+                        }}
+                        aria-label={`Add ${prompt.title} to a collection`}
+                      >
+                        <span aria-hidden="true">▤</span> Collect
+                      </button>
+                      {activeCategory === 'Collection' && selectedCollection && (
+                        <button
+                          className="text-action history-action"
+                          onClick={() => removePromptFromCollection(selectedCollection.id, prompt.id)}
+                          aria-label={`Remove ${prompt.title} from ${selectedCollection.name}`}
+                        >
+                          <span aria-hidden="true">−</span> Remove from collection
+                        </button>
+                      )}
+                      <button
+                        className="text-action history-action"
+                        onClick={() => togglePromptSharing(prompt)}
+                        aria-label={prompt.isPublic ? `Disable sharing for ${prompt.title}` : `Share ${prompt.title}`}
+                        title={prompt.isPublic ? 'Disable public sharing' : 'Create a read-only public link'}
+                      >
+                        <span aria-hidden="true">{prompt.isPublic ? '↗' : '⌁'}</span>
+                        {prompt.isPublic ? 'Shared' : 'Share'}
+                      </button>
+                      <button
+                        className="text-action history-action"
+                        onClick={() => openPromptTester(prompt)}
+                        aria-label={`Test ${prompt.title}`}
+                      >
+                        <span aria-hidden="true">▷</span> Test
+                      </button>
+                      {!prompt.archived && (
+                        <button
+                          className="text-action history-action"
+                          onClick={() => duplicatePrompt(prompt)}
+                          aria-label={`Duplicate ${prompt.title}`}
+                        >
+                          <span aria-hidden="true">▣</span> Duplicate
+                        </button>
+                      )}
+                      <button
+                        className="text-action history-action"
+                        onClick={() => toggleArchived(prompt)}
+                        aria-label={prompt.archived ? `Restore ${prompt.title}` : `Archive ${prompt.title}`}
+                      >
+                        <span aria-hidden="true">{prompt.archived ? '↥' : '▱'}</span>
+                        {prompt.archived ? 'Restore' : 'Archive'}
+                      </button>
+                      <button
+                        className="text-action history-action"
+                        onClick={() => openVersionHistory(prompt)}
+                        aria-label={`Version history for ${prompt.title}`}
+                      >
+                        <span aria-hidden="true">◷</span> History
+                      </button>
+                      <button
+                        className="icon-button"
+                        aria-label={`Edit ${prompt.title}`}
+                        onClick={() => setEditingPrompt(prompt)}
+                      >
+                        ✎
+                      </button>
+                      <button
+                        className="icon-button delete-action"
+                        aria-label={`Delete ${prompt.title}`}
+                        onClick={() => deletePrompt(prompt.id)}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">
+              <span className="empty-icon" aria-hidden="true">⌕</span>
+              <h3>{query ? 'No prompts found' : activeCategory === 'Archived' ? 'No archived prompts' : 'Nothing in this collection yet'}</h3>
+              <p>{query ? 'Try another search or clear the search box.' : activeCategory === 'Archived' ? 'Archived prompts will stay here until you restore or delete them.' : 'Create your first prompt to get started.'}</p>
+              {activeCategory !== 'Archived' && (
+                <button className="primary-button" onClick={() => setIsCreating(true)}>
+                  <span aria-hidden="true">＋</span> Create your first prompt
+                </button>
+              )}
+            </div>
+          )}
+        </section>
+      </main>
+
+      {notice && (
+        <div className="toast" role="status">
+          <span aria-hidden="true">✓</span> {notice}
+          <button aria-label="Dismiss notification" onClick={() => setNotice('')}>×</button>
+        </div>
+      )}
+
+      {(isCreating || editingPrompt) && (
+        <PromptDialog
+          prompt={editingPrompt}
+          categories={categories}
+          saveError={error}
+          onClose={() => {
+            setEditingPrompt(null)
+            setIsCreating(false)
+          }}
+          onSave={async (payload) => {
+            const succeeded = await savePrompt(payload)
+            if (succeeded) setError('')
+          }}
+        />
+      )}
+
+      {historyPrompt && (
+        <VersionHistoryDialog
+          prompt={historyPrompt}
+          versions={versions}
+          loading={loadingVersions}
+          onClose={() => setHistoryPrompt(null)}
+          onRestore={restoreVersion}
+        />
+      )}
+
+      {testerPrompt && (
+        <PromptTesterDialog
+          prompt={testerPrompt}
+          variables={testVariables}
+          onVariablesChange={setTestVariables}
+          result={testResult}
+          savedRuns={savedTestRuns}
+          compareRunId={compareRunId}
+          onCompareChange={setCompareRunId}
+          running={runningTest}
+          saving={savingTest}
+          error={error}
+          onClearError={() => setError('')}
+          onClose={() => {
+            setTesterPrompt(null)
+            setTestResult(null)
+          }}
+          onRun={runPromptTest}
+          onSave={savePromptTest}
+        />
+      )}
+
+      {collectionDialog && (
+        <CollectionManagerDialog
+          collections={collections}
+          prompts={activePrompts}
+          prompt={promptToCollect}
+          selectedCollectionId={selectedCollection?.id || ''}
+          collectionPromptIds={collectionPromptIds}
+          onClose={() => {
+            setCollectionDialog(false)
+            setPromptToCollect(null)
+          }}
+          onSave={saveCollection}
+          onDelete={deleteCollection}
+          onToggleSharing={toggleCollectionSharing}
+          onAddPrompt={addPromptToCollection}
+          onRemovePrompt={removePromptFromCollection}
+          onOpenCollection={openCollection}
+        />
+      )}
+    </div>
+  )
+}
+
+function PromptDialog({ prompt, categories, saveError, onClose, onSave }) {
+  const [title, setTitle] = useState(prompt?.title ?? '')
+  const [description, setDescription] = useState(prompt?.description ?? '')
+  const [content, setContent] = useState(prompt?.content ?? '')
+  const [category, setCategory] = useState(prompt?.category ?? categories[0] ?? 'Coding')
+  const [tags, setTags] = useState((prompt?.tags || []).join(', '))
+  const [changeNotes, setChangeNotes] = useState('')
+  const [localError, setLocalError] = useState('')
+
+  async function handleSubmit(event) {
+    event.preventDefault()
+
+    if (!title.trim() || !content.trim() || !category.trim()) {
+      setLocalError('Title, content, and category are required.')
+      return
+    }
+
+    await onSave({
+      title: title.trim(),
+      description: description.trim(),
+      content: content.trim(),
+      category: category.trim(),
+      tags: tags
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter(Boolean),
+      favorite: prompt?.favorite ?? false,
+      changeNotes: changeNotes.trim(),
+    })
+  }
+
+  return (
+    <div className="dialog-backdrop" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose()
+    }}>
+      <section className="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+        <div className="dialog-heading">
+          <div>
+            <p className="eyebrow">{prompt ? 'MAKE IT EVEN BETTER' : 'ADD TO YOUR LIBRARY'}</p>
+            <h2 id="dialog-title">{prompt ? 'Edit prompt' : 'Create a prompt'}</h2>
+          </div>
+          <button className="icon-button dialog-close" aria-label="Close dialog" onClick={onClose}>×</button>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <label className="form-field">
+            <span>Title</span>
+            <input autoFocus required value={title} onChange={(event) => setTitle(event.target.value)} />
+          </label>
+
+          <label className="form-field">
+            <span>Short description</span>
+            <input value={description} onChange={(event) => setDescription(event.target.value)} />
+          </label>
+
+          <label className="form-field">
+            <span>Prompt</span>
+            <textarea required rows={6} value={content} onChange={(event) => setContent(event.target.value)} />
+          </label>
+
+          {prompt && (
+            <label className="form-field">
+              <span>Change notes <small>Optional, saved in version history</small></span>
+              <input
+                maxLength={300}
+                value={changeNotes}
+                onChange={(event) => setChangeNotes(event.target.value)}
+                placeholder="What changed in this version?"
+              />
+            </label>
+          )}
+
+          <div className="form-row">
+            <label className="form-field">
+              <span>Category</span>
+              <input list="prompt-categories" value={category} onChange={(event) => setCategory(event.target.value)} />
+              <datalist id="prompt-categories">
+                {categories.map((item) => (
+                  <option key={item} value={item} />
+                ))}
+              </datalist>
+            </label>
+
+            <label className="form-field">
+              <span>Tags</span>
+              <input value={tags} onChange={(event) => setTags(event.target.value)} />
+            </label>
+          </div>
+
+          {(localError || saveError) && (
+            <div className="inline-error">{localError || saveError}</div>
+          )}
+
+          <div className="dialog-actions">
+            <button className="secondary-button" type="button" onClick={onClose}>Cancel</button>
+            <button className="primary-button" type="submit">{prompt ? 'Save changes' : 'Save prompt'}</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  )
+}
+
+function VersionHistoryDialog({ prompt, versions, loading, onClose, onRestore }) {
+  const [leftVersion, setLeftVersion] = useState('')
+  const [rightVersion, setRightVersion] = useState('')
+  const [showComparison, setShowComparison] = useState(false)
+  const sortedVersions = [...versions].sort((first, second) => second.version - first.version)
+  const currentVersion = sortedVersions[0]
+  const leftSelection = leftVersion || String(currentVersion?.version ?? '')
+  const rightSelection = rightVersion || String((sortedVersions[1] || currentVersion)?.version ?? '')
+  const comparisonLeft =
+    sortedVersions.find((version) => String(version.version) === leftSelection) || currentVersion
+  const comparisonRight =
+    sortedVersions.find((version) => String(version.version) === rightSelection) ||
+    sortedVersions[1] ||
+    currentVersion
+
+  return (
+    <div className="dialog-backdrop" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose()
+    }}>
+      <section className="history-dialog" role="dialog" aria-modal="true" aria-labelledby="history-title">
+        <div className="dialog-heading">
+          <div>
+            <p className="eyebrow">PROMPT HISTORY</p>
+            <h2 id="history-title">{prompt.title}</h2>
+          </div>
+          <button className="icon-button dialog-close" aria-label="Close history" onClick={onClose}>×</button>
+        </div>
+
+        {loading ? (
+          <div className="loading-state">Loading versions...</div>
+        ) : sortedVersions.length ? (
+          <>
+            <div className="history-toolbar">
+              <span>{sortedVersions.length} saved {sortedVersions.length === 1 ? 'version' : 'versions'}</span>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => setShowComparison((current) => !current)}
+                disabled={sortedVersions.length < 2}
+              >
+                {showComparison ? 'Hide comparison' : 'Compare versions'}
+              </button>
+            </div>
+
+            {showComparison && (
+              <div className="version-comparison">
+                {[comparisonLeft, comparisonRight].map((version, index) => (
+                  <div className="comparison-pane" key={`${index}-${version?.version}`}>
+                    <label className="form-field">
+                      <span>{index === 0 ? 'First version' : 'Second version'}</span>
+                      <select
+                        value={index === 0 ? leftSelection : rightSelection}
+                        onChange={(event) =>
+                          index === 0
+                            ? setLeftVersion(event.target.value)
+                            : setRightVersion(event.target.value)
+                        }
+                      >
+                        {sortedVersions.map((option) => (
+                          <option key={option.version} value={option.version}>
+                            Version {option.version}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <pre>{version?.content || ''}</pre>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="version-list">
+              {sortedVersions.map((version, index) => (
+                <article className="version-entry" key={version.version}>
+                  <div className="version-marker">{version.version}</div>
+                  <div className="version-details">
+                    <div className="version-title-row">
+                      <strong>Version {version.version}</strong>
+                      {index === 0 && <span className="current-version-badge">Current</span>}
+                    </div>
+                    <p>{version.changeNotes || 'No change notes provided.'}</p>
+                    <time>{new Intl.DateTimeFormat('en', {
+                      dateStyle: 'medium',
+                      timeStyle: 'short',
+                    }).format(new Date(version.createdAt))}</time>
+                    <pre>{version.content}</pre>
+                  </div>
+                  {index > 0 && (
+                    <button
+                      className="secondary-button restore-button"
+                      type="button"
+                      onClick={() => onRestore(version)}
+                    >
+                      Restore
+                    </button>
+                  )}
+                </article>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="empty-state compact-empty">
+            <h3>No versions yet</h3>
+            <p>Save an edit to start building version history.</p>
+          </div>
+        )}
+      </section>
+    </div>
+  )
+}
+
+function PromptTesterDialog({
+  prompt,
+  variables,
+  onVariablesChange,
+  result,
+  savedRuns,
+  compareRunId,
+  onCompareChange,
+  running,
+  saving,
+  error,
+  onClearError,
+  onClose,
+  onRun,
+  onSave,
+}) {
+  const variableNames = promptVariables(prompt.content)
+  const comparedRun = savedRuns.find(
+    (run) => String(run._id || run.id) === compareRunId,
+  )
+
+  return (
+    <div className="dialog-backdrop" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose()
+    }}>
+      <section className="tester-dialog" role="dialog" aria-modal="true" aria-labelledby="tester-title">
+        <div className="dialog-heading">
+          <div>
+            <p className="eyebrow">PROMPT TESTER · MOCK PROVIDER</p>
+            <h2 id="tester-title">{prompt.title}</h2>
+          </div>
+          <button className="icon-button dialog-close" aria-label="Close tester" onClick={onClose}>×</button>
+        </div>
+
+        <div className="tester-prompt-source">
+          <span>Prompt template</span>
+          <pre>{prompt.content}</pre>
+        </div>
+
+        {variableNames.length ? (
+          <div className="tester-variables">
+            <h3>Fill in variables</h3>
+            <div className="tester-variable-grid">
+              {variableNames.map((name) => (
+                <label className="form-field" key={name}>
+                  <span>{`{{${name}}}`}</span>
+                  <input
+                    value={variables[name] || ''}
+                    onChange={(event) =>
+                      onVariablesChange((current) => ({
+                        ...current,
+                        [name]: event.target.value,
+                      }))
+                    }
+                    placeholder={`Enter ${name}`}
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="tester-no-variables">This prompt has no variables. Run it as written.</p>
+        )}
+
+        {error && (
+          <div className="inline-error tester-error" role="alert">
+            {error}
+            <button type="button" aria-label="Dismiss error" onClick={onClearError}>×</button>
+          </div>
+        )}
+
+        <div className="tester-actions">
+          <span className="provider-note">Mock mode previews the rendered prompt; no AI service is called.</span>
+          <button className="primary-button" type="button" onClick={onRun} disabled={running}>
+            {running ? 'Running...' : 'Run prompt'}
+          </button>
+        </div>
+
+        {result && (
+          <section className="tester-output" aria-live="polite">
+            <div className="tester-output-heading">
+              <h3>Test output</h3>
+              <button className="secondary-button" type="button" onClick={onSave} disabled={saving}>
+                {saving ? 'Saving...' : 'Save result'}
+              </button>
+            </div>
+            <pre>{result.output}</pre>
+          </section>
+        )}
+
+        {savedRuns.length > 0 && (
+          <section className="saved-tests">
+            <label className="form-field">
+              <span>Compare with a saved result</span>
+              <select value={compareRunId} onChange={(event) => onCompareChange(event.target.value)}>
+                <option value="">Choose saved test</option>
+                {savedRuns.map((run, index) => (
+                  <option key={run._id || run.id || index} value={run._id || run.id}>
+                    Test from {new Intl.DateTimeFormat('en', {
+                      dateStyle: 'medium',
+                      timeStyle: 'short',
+                    }).format(new Date(run.createdAt))}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {result && comparedRun && (
+              <div className="version-comparison test-comparison">
+                <div className="comparison-pane">
+                  <strong>Current test</strong>
+                  <pre>{result.output}</pre>
+                </div>
+                <div className="comparison-pane">
+                  <strong>Saved test</strong>
+                  <pre>{comparedRun.output}</pre>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        <div className="tester-footer">
+          <button className="secondary-button" type="button" onClick={onClose}>Close</button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function CollectionManagerDialog({
+  collections,
+  prompts,
+  prompt,
+  selectedCollectionId,
+  collectionPromptIds,
+  onClose,
+  onSave,
+  onDelete,
+  onToggleSharing,
+  onAddPrompt,
+  onRemovePrompt,
+  onOpenCollection,
+}) {
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [isPublic, setIsPublic] = useState(false)
+  const [editingId, setEditingId] = useState('')
+  const [error, setError] = useState('')
+
+  const editingCollection = collections.find((collection) => collection.id === editingId)
+  const focusedCollection =
+    collections.find((collection) => collection.id === selectedCollectionId) || null
+  const activeCollection = editingCollection || focusedCollection
+
+  async function submitCollection(event) {
+    event.preventDefault()
+    if (!name.trim()) {
+      setError('Collection name is required.')
+      return
+    }
+    const saved = await onSave(
+      { name: name.trim(), description: description.trim(), isPublic },
+      editingId || null,
+    )
+    if (saved) {
+      setName('')
+      setDescription('')
+      setIsPublic(false)
+      setEditingId('')
+      setError('')
+    }
+  }
+
+  function startEdit(collection) {
+    setEditingId(collection.id)
+    setName(collection.name)
+    setDescription(collection.description || '')
+    setIsPublic(Boolean(collection.isPublic))
+  }
+
+  return (
+    <div className="dialog-backdrop" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose()
+    }}>
+      <section className="collection-dialog" role="dialog" aria-modal="true" aria-labelledby="collection-dialog-title">
+        <div className="dialog-heading">
+          <div>
+            <p className="eyebrow">{prompt ? 'ORGANIZE PROMPT' : 'YOUR LIBRARY'}</p>
+            <h2 id="collection-dialog-title">{prompt ? 'Add to collection' : 'Manage collections'}</h2>
+          </div>
+          <button className="icon-button dialog-close" aria-label="Close collections" onClick={onClose}>×</button>
+        </div>
+
+        <form className="collection-form" onSubmit={submitCollection}>
+          <h3>{editingCollection ? 'Edit collection' : 'Create a collection'}</h3>
+          <div className="form-row">
+            <label className="form-field">
+              <span>Collection name</span>
+              <input
+                value={name}
+                maxLength={80}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="e.g. Writing toolkit"
+                required
+              />
+            </label>
+            <label className="form-field">
+              <span>Description <small>Optional</small></span>
+              <input
+                value={description}
+                maxLength={240}
+                onChange={(event) => setDescription(event.target.value)}
+                placeholder="What belongs here?"
+              />
+            </label>
+          </div>
+          <label className="public-toggle">
+            <input
+              type="checkbox"
+              checked={isPublic}
+              onChange={(event) => setIsPublic(event.target.checked)}
+            />
+            <span>
+              <strong>Public collection</strong>
+              <small>Anyone with its link can view public prompts in this collection.</small>
+            </span>
+          </label>
+          {error && <div className="inline-error">{error}</div>}
+          <div className="collection-form-actions">
+            {editingCollection && (
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => {
+                  setEditingId('')
+                  setName('')
+                  setDescription('')
+                  setIsPublic(false)
+                }}
+              >
+                Cancel edit
+              </button>
+            )}
+            <button className="primary-button" type="submit">
+              {editingCollection ? 'Save changes' : 'Create collection'}
+            </button>
+          </div>
+        </form>
+
+        <div className="collection-list">
+          <h3>Your collections <span>{collections.length}</span></h3>
+          {collections.length === 0 ? (
+            <p className="collection-empty-message">Create your first collection to group related prompts.</p>
+          ) : (
+            collections.map((collection) => (
+              <article className="collection-row" key={collection.id}>
+                <button
+                  className={`collection-row-main ${focusedCollection?.id === collection.id ? 'selected' : ''}`}
+                  type="button"
+                  onClick={() => onOpenCollection(collection)}
+                >
+                  <span className="collection-row-icon">▤</span>
+                  <span>
+                    <strong>{collection.name}</strong>
+                    <small>{collection.promptCount ?? 0} prompts{collection.isPublic ? ' · Public' : ' · Private'}</small>
+                  </span>
+                </button>
+                <div className="collection-row-actions">
+                  {prompt ? (
+                    (collection.promptIds || []).includes(prompt.id) ? (
+                      <button
+                        className="secondary-button compact-button"
+                        type="button"
+                        onClick={() => onRemovePrompt(collection.id, prompt.id)}
+                      >
+                        Remove prompt
+                      </button>
+                    ) : (
+                      <button
+                        className="secondary-button compact-button"
+                        type="button"
+                        onClick={() => onAddPrompt(collection.id, prompt.id)}
+                      >
+                        Add prompt
+                      </button>
+                    )
+                  ) : (
+                    <>
+                      <button className="icon-button" type="button" aria-label={`Edit ${collection.name}`} onClick={() => startEdit(collection)}>✎</button>
+                      <button
+                        className="icon-button"
+                        type="button"
+                        aria-label={collection.isPublic ? 'Disable collection sharing' : 'Share collection'}
+                        title={collection.isPublic ? 'Copy public link' : 'Enable sharing and copy link'}
+                        onClick={() => onToggleSharing(collection)}
+                      >
+                        {collection.isPublic ? '↗' : '⌁'}
+                      </button>
+                      <button className="icon-button delete-action" type="button" aria-label={`Delete ${collection.name}`} onClick={() => onDelete(collection.id)}>×</button>
+                    </>
+                  )}
+                </div>
+              </article>
+            ))
+          )}
+        </div>
+
+        {prompt && activeCollection && (
+          <div className="collection-members">
+            <div className="collection-list-heading">
+              <h3>Prompts in {activeCollection.name}</h3>
+              {selectedCollectionId === activeCollection.id && (
+                <span className="current-version-badge">Current collection</span>
+              )}
+            </div>
+            {prompts.map((item) => (
+              <div className="collection-member-row" key={item.id}>
+                <span>{item.title}</span>
+                {selectedCollectionId === activeCollection.id && (
+                  collectionPromptIds.includes(item.id) ? (
+                    <button className="text-action" type="button" onClick={() => onRemovePrompt(activeCollection.id, item.id)}>Remove</button>
+                  ) : (
+                    <button className="text-action" type="button" onClick={() => onAddPrompt(activeCollection.id, item.id)}>Add</button>
+                  )
+                )}
+              </div>
+            ))}
+            {activeCollection.isPublic && activeCollection.shareId && (
+              <a
+                className="public-link"
+                href={`/share/collection/${activeCollection.shareId}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open public read-only collection ↗
+              </a>
+            )}
+          </div>
+        )}
+
+        <div className="dialog-actions">
+          <button className="secondary-button" type="button" onClick={onClose}>Done</button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function SharedPage({ type, shareId }) {
+  const [data, setData] = useState(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    const endpoint =
+      type === 'prompt'
+        ? `/api/public/prompts/${encodeURIComponent(shareId)}`
+        : `/api/public/collections/${encodeURIComponent(shareId)}`
+
+    fetch(`${API_URL}${endpoint}`)
+      .then(async (response) => {
+        const body = await response.json()
+        if (!response.ok) throw new Error(body.message || 'This shared page is unavailable.')
+        return body
+      })
+      .then((body) => {
+        if (active) setData(body)
+      })
+      .catch((fetchError) => {
+        if (active) setError(fetchError.message)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [shareId, type])
+
+  const prompts = type === 'prompt' ? (data?.prompt ? [data.prompt] : []) : data?.prompts || []
+
+  async function copy(content) {
+    try {
+      await navigator.clipboard.writeText(content)
+    } catch {
+      setError('Clipboard access failed. Select and copy the prompt text manually.')
+    }
+  }
+
+  return (
+    <main className="shared-page">
+      <header className="shared-header">
+        <a className="brand" href="/">
+          <span className="brand-mark" aria-hidden="true">P</span>
+          <span>prompt<span className="brand-light">vault</span></span>
+        </a>
+        <span className="read-only-badge">Read-only shared page</span>
+      </header>
+      <section className="shared-content">
+        {error ? (
+          <div className="empty-state">
+            <h1>Shared page unavailable</h1>
+            <p>{error}</p>
+          </div>
+        ) : !data ? (
+          <div className="loading-state">Loading shared {type}...</div>
+        ) : (
+          <>
+            <p className="eyebrow">{type === 'collection' ? 'SHARED COLLECTION' : 'SHARED PROMPT'}</p>
+            <h1>{type === 'collection' ? data.collection.name : data.prompt.title}</h1>
+            {(type === 'collection' ? data.collection.description : data.prompt.description) && (
+              <p className="shared-description">
+                {type === 'collection' ? data.collection.description : data.prompt.description}
+              </p>
+            )}
+            <div className="shared-prompt-list">
+              {prompts.map((prompt, index) => (
+                <article className="shared-prompt-card" key={`${prompt.title}-${index}`}>
+                  {type === 'collection' && <span className="prompt-category">{prompt.category}</span>}
+                  <h2>{prompt.title}</h2>
+                  {prompt.description && <p>{prompt.description}</p>}
+                  <pre>{prompt.content}</pre>
+                  {prompt.tags?.length > 0 && (
+                    <div className="tag-row">
+                      {prompt.tags.map((tag) => <span className="tag" key={tag}>#{tag}</span>)}
+                    </div>
+                  )}
+                  <button className="primary-button" type="button" onClick={() => copy(prompt.content)}>
+                    Copy prompt
+                  </button>
+                </article>
+              ))}
+              {type === 'collection' && prompts.length === 0 && (
+                <div className="empty-state"><p>No public prompts in this collection yet.</p></div>
+              )}
+            </div>
+          </>
+        )}
+      </section>
+    </main>
+  )
+}
+
+export default App
