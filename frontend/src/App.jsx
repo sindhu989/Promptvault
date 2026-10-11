@@ -273,6 +273,15 @@ function App() {
     setNotice('Profile updated.')
   }
 
+  async function changePassword(currentPassword, newPassword) {
+    const data = await apiRequest('/api/auth/password', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPassword, newPassword }),
+    })
+    setNotice(data.message)
+  }
+
   async function openCollection(collection) {
     try {
       const data = await apiRequest(`/api/collections/${collection.id}/prompts`)
@@ -1078,16 +1087,21 @@ function App() {
           user={user}
           onClose={() => setProfileDialog(false)}
           onSave={saveProfile}
+          onChangePassword={changePassword}
         />
       )}
     </div>
   )
 }
 
-function ProfileDialog({ user, onClose, onSave }) {
+function ProfileDialog({ user, onClose, onSave, onChangePassword }) {
   const [name, setName] = useState(user?.name || '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [passwordForm, setPasswordForm] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
 
   async function submitProfile(event) {
     event.preventDefault()
@@ -1106,6 +1120,40 @@ function ProfileDialog({ user, onClose, onSave }) {
     } finally {
       setSaving(false)
     }
+  }
+
+  async function submitPassword(event) {
+    event.preventDefault()
+    if (newPassword.length < 6) {
+      setError('New password must be at least 6 characters long.')
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      setError('New passwords do not match.')
+      return
+    }
+
+    setSaving(true)
+    setError('')
+    try {
+      await onChangePassword(currentPassword, newPassword)
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+      setPasswordForm(false)
+    } catch (saveError) {
+      setError(saveError.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function togglePasswordForm() {
+    setPasswordForm((visible) => !visible)
+    setCurrentPassword('')
+    setNewPassword('')
+    setConfirmPassword('')
+    setError('')
   }
 
   return (
@@ -1136,14 +1184,60 @@ function ProfileDialog({ user, onClose, onSave }) {
             <input value={user?.email || ''} readOnly />
             <small>Email address cannot be changed here.</small>
           </label>
-          {error && <div className="inline-error" role="alert">{error}</div>}
           <div className="dialog-actions">
-            <button className="secondary-button" type="button" onClick={onClose}>Cancel</button>
+            <button className="secondary-button" type="button" onClick={onClose}>Close</button>
             <button className="primary-button" type="submit" disabled={saving}>
               {saving ? 'Saving...' : 'Save profile'}
             </button>
           </div>
         </form>
+        <button
+          className="secondary-button password-toggle"
+          type="button"
+          onClick={togglePasswordForm}
+        >
+          {passwordForm ? 'Cancel password change' : 'Change password'}
+        </button>
+        {passwordForm && (
+          <form className="profile-form password-form" onSubmit={submitPassword}>
+            <label className="form-field">
+              <span>Current password</span>
+              <input
+                type="password"
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+                required
+              />
+            </label>
+            <label className="form-field">
+              <span>New password</span>
+              <input
+                type="password"
+                autoComplete="new-password"
+                minLength={6}
+                value={newPassword}
+                onChange={(event) => setNewPassword(event.target.value)}
+                required
+              />
+            </label>
+            <label className="form-field">
+              <span>Confirm new password</span>
+              <input
+                type="password"
+                autoComplete="new-password"
+                minLength={6}
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                required
+              />
+            </label>
+            <button className="primary-button" type="submit" disabled={saving}>
+              {saving ? 'Saving...' : 'Update password'}
+            </button>
+          </form>
+        )}
+        {error && <div className="inline-error" role="alert">{error}</div>}
       </section>
     </div>
   )

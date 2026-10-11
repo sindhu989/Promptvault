@@ -138,4 +138,36 @@ async function updateProfile(req, res) {
   return res.json({ message: 'Profile updated.', user: sanitizeUser(user) })
 }
 
-module.exports = { register, login, getMe, updateProfile }
+async function changePassword(req, res) {
+  const { currentPassword, newPassword } = req.body || {}
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ message: 'Current and new passwords are required.' })
+  }
+  if (String(newPassword).length < 6) {
+    return res.status(400).json({ message: 'New password must be at least 6 characters long.' })
+  }
+  if (String(currentPassword) === String(newPassword)) {
+    return res.status(400).json({ message: 'New password must be different from the current password.' })
+  }
+
+  const user = isMongoConnected()
+    ? await User.findById(req.user.id)
+    : users.find((item) => item.id === req.user.id)
+  if (!user) return res.status(404).json({ message: 'User not found.' })
+
+  const passwordMatches = await bcrypt.compare(String(currentPassword), user.password)
+  if (!passwordMatches) {
+    return res.status(401).json({ message: 'Current password is incorrect.' })
+  }
+
+  user.password = await bcrypt.hash(String(newPassword), 10)
+  if (isMongoConnected()) {
+    await user.save()
+  } else {
+    save()
+  }
+
+  return res.json({ message: 'Password changed successfully.' })
+}
+
+module.exports = { register, login, getMe, updateProfile, changePassword }

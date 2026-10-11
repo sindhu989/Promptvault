@@ -993,6 +993,15 @@ h1 {
   background: #f8f7fb;
 }
 
+.password-toggle {
+  justify-self: start;
+}
+
+.password-form {
+  padding-top: 14px;
+  border-top: 1px solid #efedf4;
+}
+
 @media (max-width: 600px) {
   .topbar {
     gap: 12px;
