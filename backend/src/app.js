@@ -12,6 +12,7 @@ const publicRoutes = require('./routes/publicRoutes')
 dotenv.config()
 
 const app = express()
+if (process.env.NODE_ENV === 'production') app.set('trust proxy', 1)
 const frontendBuildPath = path.resolve(__dirname, '../../frontend/dist')
 const frontendIndexPath = path.join(frontendBuildPath, 'index.html')
 

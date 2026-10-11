@@ -21,6 +21,7 @@ Phase 7 — prompt duplicate and archive/restore: complete.
 Phase 8 — collections and read-only sharing: complete.
 Phase 9 — profile display name editing: complete.
 Phase 10 — authenticated password change: complete.
+Phase 11 — email password recovery: implemented; configure Resend to enable delivery.
 
 The frontend supports creating, searching, filtering, favoriting, copying,
 editing, and deleting prompts. The UI is connected to the real API and includes
@@ -33,6 +34,10 @@ prompts. Shared pages expose only explicitly public, unarchived prompt content;
 they do not expose account details, prompt versions, or test runs.
 Users can update their profile display name; account email is shown read-only.
 Users can change their password after verifying their current password.
+Password recovery uses one-time tokens stored as hashes and expires after one
+hour. Reset request and submission routes are rate-limited. Recovery email is
+sent through Resend only after the sender domain is verified and the service is
+configured.
 
 The backend includes Express routes, JWT authentication, and prompt CRUD
 operations. It supports a real MongoDB connection when `MONGODB_URI` is set.
@@ -46,6 +51,8 @@ Authenticated collection routes are available under `/api/collections`.
 Authenticated profile reads and display-name updates are available at
 `/api/auth/me`.
 Authenticated password changes are available at `/api/auth/password`.
+Password recovery uses `POST /api/auth/forgot-password` and
+`POST /api/auth/reset-password`.
 Public read-only data is available at
 `/api/public/prompts/:shareId` and `/api/public/collections/:shareId`.
 The frontend renders share links at `/share/prompt/:shareId` and
@@ -106,3 +113,13 @@ Production startup intentionally fails if `MONGODB_URI` is missing or
 a deployment: it is single-process development storage and may not persist
 across host restarts or redeployments. Shared prompt and collection URLs use the
 deployed service's own domain.
+
+### Enable password-reset email
+
+Email recovery requires a Resend account and a sender domain verified with
+Resend. In Render's **Environment** settings, add `RESEND_API_KEY` and
+`RESEND_FROM` using the verified sender address, for example
+`PromptVault <no-reply@yourdomain.com>`. Render's `RENDER_EXTERNAL_URL` is used
+to construct reset links. Keep the API key private. Without these email
+settings, reset requests return an explicit configuration/delivery error;
+login and other app features continue to work.

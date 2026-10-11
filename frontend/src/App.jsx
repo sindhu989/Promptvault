@@ -37,7 +37,12 @@ function App() {
     }
   })
   const [user, setUser] = useState(() => readStoredValue(userKey))
-  const [authMode, setAuthMode] = useState('login')
+  const [resetToken, setResetToken] = useState(() =>
+    new URLSearchParams(window.location.search).get('resetToken') || '',
+  )
+  const [authMode, setAuthMode] = useState(() => resetToken ? 'reset' : 'login')
+  const [authMessage, setAuthMessage] = useState('')
+  const [resetPasswordConfirm, setResetPasswordConfirm] = useState('')
   const [authForm, setAuthForm] = useState({
     name: '',
     email: '',
@@ -189,8 +194,41 @@ function App() {
     event.preventDefault()
     setPending(true)
     setError('')
+    setAuthMessage('')
 
     try {
+      if (authMode === 'forgot') {
+        const response = await fetch(`${API_URL}/api/auth/forgot-password`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: authForm.email }),
+        })
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.message || 'Could not request a password reset.')
+        setAuthMessage(data.message)
+        return
+      }
+
+      if (authMode === 'reset') {
+        if (authForm.password !== resetPasswordConfirm) {
+          throw new Error('Passwords do not match.')
+        }
+        const response = await fetch(`${API_URL}/api/auth/reset-password`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: resetToken, newPassword: authForm.password }),
+        })
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.message || 'Could not reset your password.')
+        window.history.replaceState({}, document.title, window.location.pathname)
+        setResetToken('')
+        setAuthForm({ name: '', email: '', password: '' })
+        setResetPasswordConfirm('')
+        setAuthMode('login')
+        setAuthMessage(data.message)
+        return
+      }
+
       const endpoint = authMode === 'login' ? 'login' : 'register'
       const payload =
         authMode === 'login'
@@ -219,6 +257,7 @@ function App() {
 
       saveTokenAndUser(data.token, data.user)
       setAuthForm({ name: '', email: '', password: '' })
+      setAuthMessage('')
       setNotice(authMode === 'login' ? 'Logged in successfully.' : 'Account created successfully.')
     } catch (authError) {
       setError(authError.message)
@@ -616,6 +655,23 @@ function App() {
   }
 
   if (!token) {
+    const authHeading =
+      authMode === 'register'
+        ? 'Create your account'
+        : authMode === 'forgot'
+          ? 'Reset your password'
+          : authMode === 'reset'
+            ? 'Choose a new password'
+            : 'Welcome back'
+    const authSubtitle =
+      authMode === 'register'
+        ? 'Start saving high-quality prompts in one clean workspace.'
+        : authMode === 'forgot'
+          ? 'We’ll email a secure, one-time reset link if an account matches.'
+          : authMode === 'reset'
+            ? 'Choose a new password for your PromptVault account.'
+            : 'Log in to organize and reuse your best prompts.'
+
     return (
       <div className="auth-shell">
         <div className="auth-card">
@@ -626,12 +682,8 @@ function App() {
 
           <div className="auth-header">
             <p className="eyebrow">A SMART PROMPT LIBRARY</p>
-            <h1>{authMode === 'login' ? 'Welcome back' : 'Create your account'}</h1>
-            <p className="auth-subtitle">
-              {authMode === 'login'
-                ? 'Log in to organize and reuse your best prompts.'
-                : 'Start saving high-quality prompts in one clean workspace.'}
-            </p>
+            <h1>{authHeading}</h1>
+            <p className="auth-subtitle">{authSubtitle}</p>
           </div>
 
           <form onSubmit={handleAuthSubmit} className="auth-form">
@@ -650,50 +702,113 @@ function App() {
               </label>
             )}
 
-            <label className="form-field">
-              <span>Email</span>
-              <input
-                type="email"
-                value={authForm.email}
-                onChange={(event) =>
-                  setAuthForm((current) => ({ ...current, email: event.target.value }))
-                }
-                placeholder="you@example.com"
-                required
-              />
-            </label>
+            {authMode !== 'reset' && (
+              <label className="form-field">
+                <span>Email</span>
+                <input
+                  type="email"
+                  autoComplete="email"
+                  value={authForm.email}
+                  onChange={(event) =>
+                    setAuthForm((current) => ({ ...current, email: event.target.value }))
+                  }
+                  placeholder="you@example.com"
+                  required
+                />
+              </label>
+            )}
 
-            <label className="form-field">
-              <span>Password</span>
-              <input
-                type="password"
-                value={authForm.password}
-                onChange={(event) =>
-                  setAuthForm((current) => ({ ...current, password: event.target.value }))
-                }
-                placeholder="Enter at least 6 characters"
-                required
-                minLength={6}
-              />
-            </label>
+            {authMode !== 'forgot' && (
+              <label className="form-field">
+                <span>{authMode === 'reset' ? 'New password' : 'Password'}</span>
+                <input
+                  type="password"
+                  autoComplete={authMode === 'reset' ? 'new-password' : authMode === 'login' ? 'current-password' : 'new-password'}
+                  value={authForm.password}
+                  onChange={(event) =>
+                    setAuthForm((current) => ({ ...current, password: event.target.value }))
+                  }
+                  placeholder="Enter at least 6 characters"
+                  required
+                  minLength={6}
+                />
+              </label>
+            )}
 
+            {authMode === 'reset' && (
+              <label className="form-field">
+                <span>Confirm new password</span>
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  value={resetPasswordConfirm}
+                  onChange={(event) => setResetPasswordConfirm(event.target.value)}
+                  required
+                  minLength={6}
+                />
+              </label>
+            )}
+
+            {authMessage && <div className="auth-message" role="status">{authMessage}</div>}
             {error && <div className="inline-error">{error}</div>}
 
             <button className="primary-button auth-submit" type="submit" disabled={pending}>
-              {pending ? 'Please wait...' : authMode === 'login' ? 'Log in' : 'Create account'}
+              {pending
+                ? 'Please wait...'
+                : authMode === 'login'
+                  ? 'Log in'
+                  : authMode === 'register'
+                    ? 'Create account'
+                    : authMode === 'forgot'
+                      ? 'Send reset link'
+                      : 'Reset password'}
             </button>
           </form>
 
-          <button
-            type="button"
-            className="secondary-button auth-toggle"
-            onClick={() => {
-              setAuthMode((current) => (current === 'login' ? 'register' : 'login'))
-              setError('')
-            }}
-          >
-            {authMode === 'login' ? 'Need an account? Sign up' : 'Already have an account? Log in'}
-          </button>
+          {authMode === 'login' && (
+            <button
+              type="button"
+              className="auth-link"
+              onClick={() => {
+                setAuthMode('forgot')
+                setError('')
+                setAuthMessage('')
+              }}
+            >
+              Forgot password?
+            </button>
+          )}
+          {authMode !== 'reset' && (
+            <button
+              type="button"
+              className="secondary-button auth-toggle"
+              onClick={() => {
+                setAuthMode((current) => current === 'register' ? 'login' : 'register')
+                setError('')
+                setAuthMessage('')
+              }}
+            >
+              {authMode === 'register' ? 'Already have an account? Log in' : 'Need an account? Sign up'}
+            </button>
+          )}
+          {(authMode === 'forgot' || authMode === 'reset') && (
+            <button
+              type="button"
+              className="auth-link"
+              onClick={() => {
+                if (authMode === 'reset') {
+                  window.history.replaceState({}, document.title, window.location.pathname)
+                  setResetToken('')
+                  setResetPasswordConfirm('')
+                }
+                setAuthMode('login')
+                setError('')
+                setAuthMessage('')
+              }}
+            >
+              Back to log in
+            </button>
+          )}
         </div>
       </div>
     )

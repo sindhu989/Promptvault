@@ -1,8 +1,10 @@
 const bcrypt = require('bcryptjs')
+const crypto = require('crypto')
 const mongoose = require('mongoose')
 const { users, save } = require('../data/store')
 const { signToken } = require('../utils/jwt')
 const User = require('../models/User')
+const { sendPasswordResetEmail } = require('../services/passwordResetEmail')
 
 function sanitizeUser(user) {
   if (!user) return null
@@ -170,4 +172,105 @@ async function changePassword(req, res) {
   return res.json({ message: 'Password changed successfully.' })
 }
 
-module.exports = { register, login, getMe, updateProfile, changePassword }
+async function requestPasswordReset(req, res) {
+  const email = String(req.body?.email || '').trim().toLowerCase()
+  if (!email) {
+    return res.status(400).json({ message: 'Email is required.' })
+  }
+
+  const user = await findUserByEmail(email)
+  if (!user) {
+    return res.json({ message: 'If an account exists, a password reset link will be sent.' })
+  }
+
+  const rawToken = crypto.randomBytes(32).toString('hex')
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex')
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000)
+  user.passwordResetToken = tokenHash
+  user.passwordResetExpires = expiresAt
+
+  if (isMongoConnected()) {
+    await user.save()
+  } else {
+    user.passwordResetExpires = expiresAt.toISOString()
+    save()
+  }
+
+  const appUrl =
+    process.env.APP_URL ||
+    process.env.RENDER_EXTERNAL_URL ||
+    (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:4173')
+
+  try {
+    if (!appUrl) throw new Error('APP_URL is required to send password reset links.')
+    const resetUrl = new URL('/', appUrl)
+    if (process.env.NODE_ENV === 'production' && resetUrl.protocol !== 'https:') {
+      throw new Error('APP_URL must use HTTPS in production.')
+    }
+    resetUrl.searchParams.set('resetToken', rawToken)
+    await sendPasswordResetEmail(user.email, user.name, resetUrl.toString())
+  } catch (error) {
+    user.passwordResetToken = undefined
+    user.passwordResetExpires = undefined
+    if (isMongoConnected()) {
+      await user.save()
+    } else {
+      save()
+    }
+    console.error('Could not send password reset email:', error.message)
+    return res.status(503).json({
+      message: 'Password reset email could not be sent. Please try again later.',
+    })
+  }
+
+  return res.json({ message: 'If an account exists, a password reset link will be sent.' })
+}
+
+async function resetPassword(req, res) {
+  const token = String(req.body?.token || '')
+  const newPassword = String(req.body?.newPassword || '')
+  if (!token || !newPassword) {
+    return res.status(400).json({ message: 'Reset token and new password are required.' })
+  }
+  if (newPassword.length < 6) {
+    return res.status(400).json({ message: 'New password must be at least 6 characters long.' })
+  }
+
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex')
+  const now = new Date()
+  const user = isMongoConnected()
+    ? await User.findOne({
+        passwordResetToken: tokenHash,
+        passwordResetExpires: { $gt: now },
+      })
+    : users.find(
+        (item) =>
+          item.passwordResetToken === tokenHash &&
+          new Date(item.passwordResetExpires) > now,
+      )
+
+  if (!user) {
+    return res.status(400).json({ message: 'This password reset link is invalid or has expired.' })
+  }
+
+  user.password = await bcrypt.hash(newPassword, 10)
+  user.passwordResetToken = undefined
+  user.passwordResetExpires = undefined
+  if (isMongoConnected()) {
+    await user.save()
+  } else {
+    save()
+  }
+
+  return res.json({ message: 'Password reset successfully. You can now log in.' })
+}
+
+module.exports = {
+  register,
+  login,
+  getMe,
+  updateProfile,
+  changePassword,
+  requestPasswordReset,
+  resetPassword,
+}
