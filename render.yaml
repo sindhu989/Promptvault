@@ -3,7 +3,7 @@ services:
     name: promptvault
     runtime: node
     plan: free
-    buildCommand: npm ci --prefix backend --omit=dev && npm ci --prefix frontend --include=dev && npm run build --prefix frontend
+    buildCommand: npm ci --prefix backend --omit=dev && npm test --prefix backend && npm ci --prefix frontend --include=dev && npm run build --prefix frontend
     startCommand: npm --prefix backend start
     healthCheckPath: /api/health
     envVars:
