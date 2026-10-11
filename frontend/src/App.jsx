@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
 const API_URL =
@@ -74,6 +74,9 @@ function App() {
   const [runningTest, setRunningTest] = useState(false)
   const [savingTest, setSavingTest] = useState(false)
   const [profileDialog, setProfileDialog] = useState(false)
+  const [transferFormat, setTransferFormat] = useState('json')
+  const [transferringData, setTransferringData] = useState(false)
+  const importInputRef = useRef(null)
   const sharedRoute = window.location.pathname.match(/^\/share\/(prompt|collection)\/([^/]+)$/)
 
   useEffect(() => {
@@ -321,55 +324,73 @@ function App() {
     setNotice(data.message)
   }
 
-  function downloadBackup() {
-    const backup = {
-      app: 'PromptVault',
-      formatVersion: 1,
-      exportedAt: new Date().toISOString(),
-      prompts: prompts.map((prompt) => ({
-        id: prompt.id,
-        title: prompt.title,
-        description: prompt.description || '',
-        content: prompt.content,
-        category: prompt.category,
-        tags: prompt.tags || [],
-        favorite: Boolean(prompt.favorite),
-        archived: Boolean(prompt.archived),
-        isPublic: Boolean(prompt.isPublic),
-        shareId: prompt.shareId,
-        versionHistory: prompt.versionHistory || [],
-        testRuns: prompt.testRuns || [],
-        createdAt: prompt.createdAt,
-        updatedAt: prompt.updatedAt,
-      })),
-      collections: collections.map((collection) => ({
-        id: collection.id,
-        name: collection.name,
-        description: collection.description || '',
-        promptIds: collection.promptIds || [],
-        isPublic: Boolean(collection.isPublic),
-        shareId: collection.shareId,
-        createdAt: collection.createdAt,
-        updatedAt: collection.updatedAt,
-      })),
-    }
-
+  async function exportData() {
+    setTransferringData(true)
+    setError('')
     try {
-      const file = new Blob([JSON.stringify(backup, null, 2)], {
-        type: 'application/json',
-      })
+      const response = await fetch(
+        `${API_URL}/api/export?format=${encodeURIComponent(transferFormat)}`,
+        {
+          headers: { Authorization: ['Bearer', token].join(' ') },
+        },
+      )
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        if (response.status === 401) logout()
+        throw new Error(data.message || 'Could not export your prompts.')
+      }
+      const file = await response.blob()
       const downloadUrl = URL.createObjectURL(file)
       const link = document.createElement('a')
       link.href = downloadUrl
-      link.download = `promptvault-backup-${new Date().toISOString().slice(0, 10)}.json`
+      link.download = `promptvault-export-${new Date().toISOString().slice(0, 10)}.${transferFormat}`
       document.body.appendChild(link)
       link.click()
       link.remove()
-      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 0)
-      setNotice('Backup downloaded. Store the file somewhere private.')
-    } catch (backupError) {
-      console.error('Could not create PromptVault backup:', backupError)
-      setError('Could not download the backup. Please try again.')
+      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000)
+      setNotice(`Prompt data exported as ${transferFormat.toUpperCase()}. Keep exported files private.`)
+    } catch (exportError) {
+      setError(exportError.message || 'Could not export your prompts.')
+    } finally {
+      setTransferringData(false)
+    }
+  }
+
+  async function importFile(event) {
+    const file = event.target.files?.[0]
+    if (!file) return
+    event.target.value = ''
+    const extension = file.name.split('.').pop()?.toLowerCase()
+    if (!['json', 'csv', 'md', 'markdown', 'txt'].includes(extension)) {
+      setError('Choose a JSON, CSV, Markdown, or TXT file.')
+      return
+    }
+    if (file.size > 900 * 1024) {
+      setError('Import files must be smaller than 900 KB.')
+      return
+    }
+
+    setTransferringData(true)
+    setError('')
+    try {
+      const data = await apiRequest('/api/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: file.name,
+          format: extension,
+          content: await file.text(),
+        }),
+      })
+      await Promise.all([refreshPrompts(), refreshCollections()])
+      setSelectedCollection(null)
+      setCollectionPromptIds([])
+      setActiveCategory('All prompts')
+      setNotice(data.message)
+    } catch (importError) {
+      setError(importError.message || 'Could not import this file.')
+    } finally {
+      setTransferringData(false)
     }
   }
 
@@ -989,9 +1010,43 @@ function App() {
         <header className="topbar">
           <div className="breadcrumb">Workspace <span>/</span> {activeCategory}</div>
           <div className="topbar-actions">
-            <button className="secondary-button backup-button" type="button" onClick={downloadBackup}>
-              <span aria-hidden="true">⇩</span> Backup
-            </button>
+            <div className="transfer-actions">
+              <select
+                className="transfer-format"
+                aria-label="Export format"
+                value={transferFormat}
+                onChange={(event) => setTransferFormat(event.target.value)}
+                disabled={transferringData}
+              >
+                <option value="json">JSON</option>
+                <option value="csv">CSV</option>
+                <option value="md">Markdown</option>
+                <option value="txt">TXT</option>
+              </select>
+              <button
+                className="secondary-button backup-button"
+                type="button"
+                onClick={exportData}
+                disabled={transferringData}
+              >
+                <span aria-hidden="true">⇩</span> Export
+              </button>
+              <button
+                className="secondary-button import-button"
+                type="button"
+                onClick={() => importInputRef.current?.click()}
+                disabled={transferringData}
+              >
+                <span aria-hidden="true">⇧</span> Import
+              </button>
+              <input
+                ref={importInputRef}
+                className="visually-hidden"
+                type="file"
+                accept=".json,.csv,.md,.markdown,.txt,application/json,text/csv,text/markdown,text/plain"
+                onChange={importFile}
+              />
+            </div>
             <label className="search-box">
               <span aria-hidden="true">⌕</span>
               <input

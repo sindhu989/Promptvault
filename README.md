@@ -23,6 +23,7 @@ Phase 9 — profile display name editing: complete.
 Phase 10 — authenticated password change: complete.
 Phase 11 — email password recovery: implemented; configure Resend to enable delivery.
 Phase 12 — private prompt and collection backup export: complete.
+Phase 13 — validated prompt import and multi-format export: complete.
 
 The frontend supports creating, searching, filtering, favoriting, copying,
 editing, and deleting prompts. The UI is connected to the real API and includes
@@ -35,9 +36,14 @@ prompts. Shared pages expose only explicitly public, unarchived prompt content;
 they do not expose account details, prompt versions, or test runs.
 Users can update their profile display name; account email is shown read-only.
 Users can change their password after verifying their current password.
-Users can download a JSON backup of their prompts, version history, test runs,
-and collections. Backup files may contain private prompt content and should be
-stored securely.
+Users can export prompts as JSON, CSV, Markdown, or TXT and import files in
+those formats. JSON exports include version history, saved test runs, and
+collections; the other formats include prompt text and metadata only. Imports
+append new private prompts and collections without overwriting existing data,
+assign new IDs and ownership, and remap collection membership. Imports are
+limited to 100 prompts and 100 collections per file, with a 900 KB dashboard
+file-size limit. JSON backups and exports may contain private prompt content
+and should be stored securely.
 Password recovery uses one-time tokens stored as hashes and expires after one
 hour. Reset request and submission routes are rate-limited. Recovery email is
 sent through Resend only after the sender domain is verified and the service is
@@ -61,6 +67,12 @@ Public read-only data is available at
 `/api/public/prompts/:shareId` and `/api/public/collections/:shareId`.
 The frontend renders share links at `/share/prompt/:shareId` and
 `/share/collection/:shareId`.
+Authenticated data export and import are available at `GET /api/export?format=json|csv|md|txt`
+and `POST /api/import`. The import request includes `format`, `filename`, and
+the file's text in `content`. JSON accepts either a prompt array or a PromptVault
+backup object. CSV requires `title`, `content`, and `category` columns.
+Markdown and TXT imports accept PromptVault's exported structure; a plain TXT
+file is also accepted as one prompt.
 
 ## Run the frontend
 

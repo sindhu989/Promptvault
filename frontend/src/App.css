@@ -284,14 +284,42 @@ button {
   gap: 9px;
 }
 
+.transfer-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.transfer-format {
+  height: 35px;
+  padding: 0 8px;
+  color: #706b83;
+  background: #fff;
+  border: 1px solid #eeedf3;
+  border-radius: 7px;
+  font-size: 10px;
+}
+
 .backup-button {
   min-height: 35px;
   padding: 0 10px;
   white-space: nowrap;
 }
 
-.backup-button > span {
+.backup-button > span,
+.import-button > span {
   font-size: 15px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .search-box {
@@ -1040,9 +1068,20 @@ h1 {
     gap: 6px;
   }
 
-  .backup-button {
+  .transfer-actions {
+    gap: 4px;
+  }
+
+  .backup-button,
+  .import-button {
     min-height: 32px;
     padding: 0 7px;
+    font-size: 9px;
+  }
+
+  .transfer-format {
+    height: 32px;
+    padding: 0 4px;
     font-size: 9px;
   }
 
