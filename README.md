@@ -22,6 +22,7 @@ Phase 8 — collections and read-only sharing: complete.
 Phase 9 — profile display name editing: complete.
 Phase 10 — authenticated password change: complete.
 Phase 11 — email password recovery: implemented; configure Resend to enable delivery.
+Phase 12 — private prompt and collection backup export: complete.
 
 The frontend supports creating, searching, filtering, favoriting, copying,
 editing, and deleting prompts. The UI is connected to the real API and includes
@@ -34,6 +35,9 @@ prompts. Shared pages expose only explicitly public, unarchived prompt content;
 they do not expose account details, prompt versions, or test runs.
 Users can update their profile display name; account email is shown read-only.
 Users can change their password after verifying their current password.
+Users can download a JSON backup of their prompts, version history, test runs,
+and collections. Backup files may contain private prompt content and should be
+stored securely.
 Password recovery uses one-time tokens stored as hashes and expires after one
 hour. Reset request and submission routes are rate-limited. Recovery email is
 sent through Resend only after the sender domain is verified and the service is

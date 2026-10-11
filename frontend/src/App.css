@@ -278,6 +278,22 @@ button {
   color: #b8b6c5;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.backup-button {
+  min-height: 35px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.backup-button > span {
+  font-size: 15px;
+}
+
 .search-box {
   display: flex;
   width: 252px;
@@ -1004,7 +1020,7 @@ h1 {
 
 @media (max-width: 600px) {
   .topbar {
-    gap: 12px;
+    gap: 8px;
     padding: 0 15px;
   }
 
@@ -1015,8 +1031,19 @@ h1 {
   }
 
   .search-box {
-    width: min(54%, 230px);
+    width: min(44vw, 230px);
     flex: 0 0 auto;
+  }
+
+  .topbar-actions {
+    min-width: 0;
+    gap: 6px;
+  }
+
+  .backup-button {
+    min-height: 32px;
+    padding: 0 7px;
+    font-size: 9px;
   }
 
   .search-box kbd {

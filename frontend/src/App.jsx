@@ -321,6 +321,58 @@ function App() {
     setNotice(data.message)
   }
 
+  function downloadBackup() {
+    const backup = {
+      app: 'PromptVault',
+      formatVersion: 1,
+      exportedAt: new Date().toISOString(),
+      prompts: prompts.map((prompt) => ({
+        id: prompt.id,
+        title: prompt.title,
+        description: prompt.description || '',
+        content: prompt.content,
+        category: prompt.category,
+        tags: prompt.tags || [],
+        favorite: Boolean(prompt.favorite),
+        archived: Boolean(prompt.archived),
+        isPublic: Boolean(prompt.isPublic),
+        shareId: prompt.shareId,
+        versionHistory: prompt.versionHistory || [],
+        testRuns: prompt.testRuns || [],
+        createdAt: prompt.createdAt,
+        updatedAt: prompt.updatedAt,
+      })),
+      collections: collections.map((collection) => ({
+        id: collection.id,
+        name: collection.name,
+        description: collection.description || '',
+        promptIds: collection.promptIds || [],
+        isPublic: Boolean(collection.isPublic),
+        shareId: collection.shareId,
+        createdAt: collection.createdAt,
+        updatedAt: collection.updatedAt,
+      })),
+    }
+
+    try {
+      const file = new Blob([JSON.stringify(backup, null, 2)], {
+        type: 'application/json',
+      })
+      const downloadUrl = URL.createObjectURL(file)
+      const link = document.createElement('a')
+      link.href = downloadUrl
+      link.download = `promptvault-backup-${new Date().toISOString().slice(0, 10)}.json`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 0)
+      setNotice('Backup downloaded. Store the file somewhere private.')
+    } catch (backupError) {
+      console.error('Could not create PromptVault backup:', backupError)
+      setError('Could not download the backup. Please try again.')
+    }
+  }
+
   async function openCollection(collection) {
     try {
       const data = await apiRequest(`/api/collections/${collection.id}/prompts`)
@@ -936,16 +988,21 @@ function App() {
       <main className="main-content">
         <header className="topbar">
           <div className="breadcrumb">Workspace <span>/</span> {activeCategory}</div>
-          <label className="search-box">
-            <span aria-hidden="true">⌕</span>
-            <input
-              aria-label="Search prompts"
-              placeholder="Search prompts..."
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-            <kbd>⌘ K</kbd>
-          </label>
+          <div className="topbar-actions">
+            <button className="secondary-button backup-button" type="button" onClick={downloadBackup}>
+              <span aria-hidden="true">⇩</span> Backup
+            </button>
+            <label className="search-box">
+              <span aria-hidden="true">⌕</span>
+              <input
+                aria-label="Search prompts"
+                placeholder="Search prompts..."
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+              <kbd>⌘ K</kbd>
+            </label>
+          </div>
         </header>
 
         <section className="content-area">
