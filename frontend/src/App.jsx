@@ -68,6 +68,7 @@ function App() {
   const [compareRunId, setCompareRunId] = useState('')
   const [runningTest, setRunningTest] = useState(false)
   const [savingTest, setSavingTest] = useState(false)
+  const [profileDialog, setProfileDialog] = useState(false)
   const sharedRoute = window.location.pathname.match(/^\/share\/(prompt|collection)\/([^/]+)$/)
 
   useEffect(() => {
@@ -256,6 +257,20 @@ function App() {
   async function refreshCollections() {
     const data = await apiRequest('/api/collections')
     setCollections(data.collections || [])
+  }
+
+  async function saveProfile(name) {
+    const data = await apiRequest('/api/auth/me', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    })
+    setUser(data.user)
+    try {
+      window.localStorage.setItem(userKey, JSON.stringify(data.user))
+    } catch {}
+    setProfileDialog(false)
+    setNotice('Profile updated.')
   }
 
   async function openCollection(collection) {
@@ -781,7 +796,14 @@ function App() {
           </div>
           <div className="profile">
             <span className="avatar">{(user?.name || 'U').charAt(0).toUpperCase()}</span>
-            <span className="profile-name">{user ? user.name : 'Workspace'}</span>
+            <button
+              className="profile-name"
+              type="button"
+              onClick={() => setProfileDialog(true)}
+              aria-label="Edit profile"
+            >
+              {user ? user.name : 'Workspace'}
+            </button>
             <button className="logout-button" onClick={logout} type="button">Logout</button>
           </div>
         </div>
@@ -1050,6 +1072,79 @@ function App() {
           onOpenCollection={openCollection}
         />
       )}
+
+      {profileDialog && (
+        <ProfileDialog
+          user={user}
+          onClose={() => setProfileDialog(false)}
+          onSave={saveProfile}
+        />
+      )}
+    </div>
+  )
+}
+
+function ProfileDialog({ user, onClose, onSave }) {
+  const [name, setName] = useState(user?.name || '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  async function submitProfile(event) {
+    event.preventDefault()
+    const trimmedName = name.trim()
+    if (!trimmedName) {
+      setError('Name is required.')
+      return
+    }
+
+    setSaving(true)
+    setError('')
+    try {
+      await onSave(trimmedName)
+    } catch (saveError) {
+      setError(saveError.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="dialog-backdrop" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose()
+    }}>
+      <section className="prompt-dialog profile-dialog" role="dialog" aria-modal="true" aria-labelledby="profile-dialog-title">
+        <div className="dialog-heading">
+          <div>
+            <p className="eyebrow">ACCOUNT SETTINGS</p>
+            <h2 id="profile-dialog-title">Your profile</h2>
+          </div>
+          <button className="icon-button dialog-close" aria-label="Close profile" onClick={onClose}>×</button>
+        </div>
+        <form className="profile-form" onSubmit={submitProfile}>
+          <label className="form-field">
+            <span>Name</span>
+            <input
+              autoFocus
+              maxLength={80}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              required
+            />
+          </label>
+          <label className="form-field">
+            <span>Email</span>
+            <input value={user?.email || ''} readOnly />
+            <small>Email address cannot be changed here.</small>
+          </label>
+          {error && <div className="inline-error" role="alert">{error}</div>}
+          <div className="dialog-actions">
+            <button className="secondary-button" type="button" onClick={onClose}>Cancel</button>
+            <button className="primary-button" type="submit" disabled={saving}>
+              {saving ? 'Saving...' : 'Save profile'}
+            </button>
+          </div>
+        </form>
+      </section>
     </div>
   )
 }

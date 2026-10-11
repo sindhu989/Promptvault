@@ -114,4 +114,28 @@ function getMe(req, res) {
   return res.json({ user: req.user })
 }
 
-module.exports = { register, login, getMe }
+async function updateProfile(req, res) {
+  const name = String(req.body?.name || '').trim()
+  if (!name) {
+    return res.status(400).json({ message: 'Name is required.' })
+  }
+  if (name.length > 80) {
+    return res.status(400).json({ message: 'Name cannot be longer than 80 characters.' })
+  }
+
+  if (isMongoConnected()) {
+    const user = await User.findById(req.user.id)
+    if (!user) return res.status(404).json({ message: 'User not found.' })
+    user.name = name
+    await user.save()
+    return res.json({ message: 'Profile updated.', user: sanitizeUser(user) })
+  }
+
+  const user = users.find((item) => item.id === req.user.id)
+  if (!user) return res.status(404).json({ message: 'User not found.' })
+  user.name = name
+  save()
+  return res.json({ message: 'Profile updated.', user: sanitizeUser(user) })
+}
+
+module.exports = { register, login, getMe, updateProfile }

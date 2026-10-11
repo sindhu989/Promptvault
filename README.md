@@ -19,6 +19,7 @@ Phase 5 — prompt version history: complete.
 Phase 6 — prompt tester with mock provider: complete.
 Phase 7 — prompt duplicate and archive/restore: complete.
 Phase 8 — collections and read-only sharing: complete.
+Phase 9 — profile display name editing: complete.
 
 The frontend supports creating, searching, filtering, favoriting, copying,
 editing, and deleting prompts. The UI is connected to the real API and includes
@@ -29,6 +30,7 @@ Users can group prompts into private or public collections, manage collection
 membership, and create read-only share links for collections and individual
 prompts. Shared pages expose only explicitly public, unarchived prompt content;
 they do not expose account details, prompt versions, or test runs.
+Users can update their profile display name; account email is shown read-only.
 
 The backend includes Express routes, JWT authentication, and prompt CRUD
 operations. It supports a real MongoDB connection when `MONGODB_URI` is set.
@@ -39,6 +41,8 @@ Prompt edits create immutable snapshots with version numbers, change notes,
 creator IDs, and timestamps. Restoring an older version creates a new version.
 Prompt test runs can also be saved to the prompt and are private to its owner.
 Authenticated collection routes are available under `/api/collections`.
+Authenticated profile reads and display-name updates are available at
+`/api/auth/me`.
 Public read-only data is available at
 `/api/public/prompts/:shareId` and `/api/public/collections/:shareId`.
 The frontend renders share links at `/share/prompt/:shareId` and

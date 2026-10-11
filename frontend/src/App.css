@@ -224,8 +224,22 @@ button {
 }
 
 .profile-name {
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
   font-size: 10px;
   font-weight: 600;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-name:hover {
+  color: var(--purple-dark);
+  text-decoration: underline;
 }
 
 .profile-menu {
@@ -963,6 +977,20 @@ h1 {
   .content-area {
     padding: 31px 22px 45px;
   }
+}
+
+.profile-form {
+  display: grid;
+  gap: 14px;
+}
+
+.profile-form .form-field input {
+  padding: 10px 11px;
+}
+
+.profile-form .form-field input[readonly] {
+  color: #858294;
+  background: #f8f7fb;
 }
 
 @media (max-width: 600px) {
