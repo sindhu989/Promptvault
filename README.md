@@ -77,16 +77,6 @@ If `MONGODB_URI` is omitted, users and prompts are saved in
 The frontend is available at http://localhost:4173 and the backend at
 http://localhost:5000.
 
-## Run backend tests
-
-The API regression tests use Node's built-in test runner and an isolated
-temporary backend data directory; they do not modify the development database.
-
-```sh
-cd backend
-npm test
-```
-
 ## Deploy to Render
 
 The repository includes a Render Blueprint (`render.yaml`) that builds the
