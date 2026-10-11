@@ -113,6 +113,10 @@ function App() {
   const sharedRoute = window.location.pathname.match(/^\/share\/(prompt|collection)\/([^/]+)$/)
 
   useEffect(() => {
+    document.documentElement.dataset.theme = user?.theme === 'dark' ? 'dark' : 'light'
+  }, [user?.theme])
+
+  useEffect(() => {
     if (!token) return
 
     try {
@@ -381,6 +385,19 @@ function App() {
     } catch {}
     setProfileDialog(false)
     setNotice('Profile updated.')
+  }
+
+  async function saveTheme(theme) {
+    const data = await apiRequest('/api/auth/preferences', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ theme }),
+    })
+    setUser(data.user)
+    try {
+      window.localStorage.setItem(userKey, JSON.stringify(data.user))
+    } catch {}
+    setNotice(`Theme changed to ${theme}.`)
   }
 
   async function changePassword(currentPassword, newPassword) {
@@ -956,7 +973,7 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-theme={user?.theme === 'dark' ? 'dark' : 'light'}>
       <aside className="sidebar">
         <div className="brand" aria-label="PromptVault home">
           <span className="brand-mark" aria-hidden="true">P</span>
@@ -1423,6 +1440,7 @@ function App() {
           user={user}
           onClose={() => setProfileDialog(false)}
           onSave={saveProfile}
+          onSaveTheme={saveTheme}
           onChangePassword={changePassword}
         />
       )}
@@ -1430,7 +1448,7 @@ function App() {
   )
 }
 
-function ProfileDialog({ user, onClose, onSave, onChangePassword }) {
+function ProfileDialog({ user, onClose, onSave, onSaveTheme, onChangePassword }) {
   const [name, setName] = useState(user?.name || '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -1438,6 +1456,7 @@ function ProfileDialog({ user, onClose, onSave, onChangePassword }) {
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [savingTheme, setSavingTheme] = useState(false)
 
   async function submitProfile(event) {
     event.preventDefault()
@@ -1492,6 +1511,18 @@ function ProfileDialog({ user, onClose, onSave, onChangePassword }) {
     setError('')
   }
 
+  async function changeTheme(theme) {
+    setSavingTheme(true)
+    setError('')
+    try {
+      await onSaveTheme(theme)
+    } catch (saveError) {
+      setError(saveError.message || 'Could not update the theme.')
+    } finally {
+      setSavingTheme(false)
+    }
+  }
+
   return (
     <div className="dialog-backdrop" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose()
@@ -1519,6 +1550,18 @@ function ProfileDialog({ user, onClose, onSave, onChangePassword }) {
             <span>Email</span>
             <input value={user?.email || ''} readOnly />
             <small>Email address cannot be changed here.</small>
+          </label>
+          <label className="form-field">
+            <span>Appearance</span>
+            <select
+              value={user?.theme === 'dark' ? 'dark' : 'light'}
+              onChange={(event) => changeTheme(event.target.value)}
+              disabled={savingTheme}
+            >
+              <option value="light">Light theme</option>
+              <option value="dark">Dark theme</option>
+            </select>
+            <small>{savingTheme ? 'Saving preference...' : 'Saved to your account and used on your next sign-in.'}</small>
           </label>
           <div className="dialog-actions">
             <button className="secondary-button" type="button" onClick={onClose}>Close</button>

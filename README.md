@@ -25,6 +25,7 @@ Phase 11 — email password recovery: implemented; configure Resend to enable de
 Phase 12 — private prompt and collection backup export: complete.
 Phase 13 — validated prompt import and multi-format export: complete.
 Phase 14 — authenticated activity history: complete.
+Phase 15 — account-level light and dark themes: complete.
 
 The frontend supports creating, searching, filtering, favoriting, copying,
 editing, and deleting prompts. The UI is connected to the real API and includes
@@ -48,6 +49,8 @@ and should be stored securely.
 The Activity view records recent prompt, collection, saved-test, and import
 actions for the signed-in user. It shows the latest 100 entries and retains up
 to 500 entries per user.
+Users can select a light or dark appearance from account settings; the selected
+theme is saved to their profile and applied automatically on later sign-ins.
 Password recovery uses one-time tokens stored as hashes and expires after one
 hour. Reset request and submission routes are rate-limited. Recovery email is
 sent through Resend only after the sender domain is verified and the service is
@@ -79,6 +82,8 @@ Markdown and TXT imports accept PromptVault's exported structure; a plain TXT
 file is also accepted as one prompt.
 The authenticated `GET /api/activity` endpoint returns up to 100 recent
 activity entries for the current user.
+The authenticated `PUT /api/auth/preferences` endpoint accepts
+`{"theme":"light"}` or `{"theme":"dark"}` and returns the updated user profile.
 
 ## Run the frontend
 

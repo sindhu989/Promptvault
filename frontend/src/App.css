@@ -949,7 +949,8 @@ h1 {
 }
 
 .form-field input,
-.form-field textarea {
+.form-field textarea,
+.form-field select {
   width: 100%;
   padding: 9px 10px;
   color: var(--ink);
@@ -964,6 +965,10 @@ h1 {
   min-height: 125px;
   resize: vertical;
   line-height: 1.6;
+}
+
+.form-field select {
+  min-height: 36px;
 }
 
 .form-field input::placeholder,
@@ -1117,7 +1122,141 @@ h1 {
     gap: 8px;
     padding: 0 15px;
   }
+}
 
+:root[data-theme='dark'] .app-shell {
+  min-height: 100vh;
+  color: var(--ink);
+  background: var(--page);
+}
+
+:root[data-theme='dark'] .app-shell :is(
+    .sidebar,
+    .topbar,
+    .stat-card,
+    .prompt-card,
+    .activity-panel,
+    .empty-state,
+    .prompt-dialog,
+    .tester-dialog,
+    .collection-dialog,
+    .history-dialog
+) {
+  background-color: var(--surface);
+  border-color: var(--line);
+}
+
+:root[data-theme='dark'] .app-shell :is(
+    .brand,
+    .breadcrumb,
+    .nav-item,
+    .welcome-row h1,
+    .prompt-section-heading h2,
+    .stat-copy strong,
+    .prompt-card h3,
+    .prompt-description,
+    .activity-description strong,
+    .dialog-heading h2,
+    .form-field > span,
+    .profile-name,
+    .collection-title,
+    .tester-dialog h3
+) {
+  color: var(--ink);
+}
+
+:root[data-theme='dark'] .app-shell :is(
+    .nav-item:hover,
+    .storage-card,
+    .transfer-format,
+    .search-box,
+    .prompt-preview,
+    .form-field input,
+    .form-field textarea,
+    .form-field select,
+    .comparison-pane,
+    .comparison-pane .form-field select,
+    .tester-prompt-source,
+    .tester-output,
+    .tester-prompt-source pre,
+    .tester-output > pre,
+    .collection-form,
+    .collection-row,
+    .collection-members,
+    .collection-card,
+    .collection-prompt-option,
+    .version-entry,
+    .version-details pre,
+    .history-toolbar
+) {
+  color: var(--ink);
+  background-color: #2a2836;
+  border-color: var(--line);
+}
+
+:root[data-theme='dark'] .app-shell :is(
+    .nav-icon,
+    .sidebar-label,
+    .nav-count,
+    .welcome-copy,
+    .stat-copy > span,
+    .updated-date,
+    .activity-description > span,
+    .activity-description small,
+    .activity-item time,
+    .form-field small,
+    .dialog-description,
+    .prompt-section-heading > span
+) {
+  color: var(--muted);
+}
+
+:root[data-theme='dark'] .app-shell :is(.nav-item.active, .nav-item.active:hover) {
+  color: var(--purple-dark);
+  background: var(--purple-pale);
+}
+
+:root[data-theme='dark'] .app-shell :is(
+    .activity-item,
+    .card-footer,
+    .dialog-actions,
+    .collection-footer,
+    .collection-row,
+    .version-entry
+) {
+  border-color: var(--line);
+}
+
+:root[data-theme='dark'] .app-shell .activity-marker {
+  color: var(--purple-dark);
+  background: var(--purple-pale);
+}
+
+:root[data-theme='dark'] .app-shell :is(.secondary-button, .icon-button, .password-toggle) {
+  color: var(--ink);
+  background-color: #2a2836;
+  border-color: var(--line);
+}
+
+:root[data-theme='dark'] .app-shell :is(.secondary-button:hover, .icon-button:hover) {
+  background-color: #353244;
+}
+
+:root[data-theme='dark'] .app-shell .dialog-backdrop {
+  background: rgb(8 7 13 / 72%);
+}
+
+:root[data-theme='dark'] .app-shell input::placeholder,
+:root[data-theme='dark'] .app-shell textarea::placeholder {
+  color: #a09caf;
+}
+
+:root[data-theme='dark'] .app-shell .tag {
+  color: #c3b8fa;
+  background: #302a48;
+}
+
+@media (max-width: 600px) {
   .breadcrumb {
     overflow: hidden;
     text-overflow: ellipsis;

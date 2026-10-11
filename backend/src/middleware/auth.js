@@ -24,6 +24,7 @@ async function protect(req, res, next) {
         id: String(user._id),
         name: user.name,
         email: user.email,
+        theme: user.theme === 'dark' ? 'dark' : 'light',
       }
       return next()
     }
@@ -33,7 +34,12 @@ async function protect(req, res, next) {
       return res.status(401).json({ message: 'User not found.' })
     }
 
-    req.user = { id: user.id, name: user.name, email: user.email }
+    req.user = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      theme: user.theme === 'dark' ? 'dark' : 'light',
+    }
     return next()
   } catch (error) {
     return res.status(401).json({ message: 'Invalid or expired token.' })

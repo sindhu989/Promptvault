@@ -11,6 +11,7 @@ function sanitizeUser(user) {
   const { password, _id, ...safeUser } = user.toObject ? user.toObject() : user
   return {
     ...safeUser,
+    theme: safeUser.theme === 'dark' ? 'dark' : 'light',
     id: safeUser.id || String(_id || safeUser._id || user.id),
   }
 }
@@ -138,6 +139,26 @@ async function updateProfile(req, res) {
   user.name = name
   save()
   return res.json({ message: 'Profile updated.', user: sanitizeUser(user) })
+}
+
+async function updatePreferences(req, res) {
+  const { theme } = req.body || {}
+  if (!['light', 'dark'].includes(theme)) {
+    return res.status(400).json({ message: 'Theme must be light or dark.' })
+  }
+
+  const user = isMongoConnected()
+    ? await User.findById(req.user.id)
+    : users.find((item) => item.id === req.user.id)
+  if (!user) return res.status(404).json({ message: 'User not found.' })
+
+  user.theme = theme
+  if (isMongoConnected()) {
+    await user.save()
+  } else {
+    save()
+  }
+  return res.json({ message: 'Preferences updated.', user: sanitizeUser(user) })
 }
 
 async function changePassword(req, res) {
@@ -270,6 +291,7 @@ module.exports = {
   login,
   getMe,
   updateProfile,
+  updatePreferences,
   changePassword,
   requestPasswordReset,
   resetPassword,

@@ -5,6 +5,7 @@ const {
   login,
   getMe,
   updateProfile,
+  updatePreferences,
   changePassword,
   requestPasswordReset,
   resetPassword,
@@ -33,6 +34,7 @@ router.post('/forgot-password', passwordResetRequestLimit, requestPasswordReset)
 router.post('/reset-password', passwordResetLimit, resetPassword)
 router.get('/me', protect, getMe)
 router.put('/me', protect, updateProfile)
+router.put('/preferences', protect, updatePreferences)
 router.put('/password', protect, changePassword)
 
 module.exports = router

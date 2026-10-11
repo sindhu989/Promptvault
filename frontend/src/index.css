@@ -18,6 +18,25 @@
   --purple-dark: #6248c2;
   --purple-pale: #f1edff;
   --surface: #fff;
+  --page: #f8f8fb;
+
+  color: var(--ink);
+  background: var(--page);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  color: #eeecf6;
+  background: #17161e;
+
+  --ink: #eeecf6;
+  --muted: #aaa7ba;
+  --line: #353342;
+  --purple: #a18cf4;
+  --purple-dark: #c0b2ff;
+  --purple-pale: #302a48;
+  --surface: #211f2a;
+  --page: #17161e;
 }
 
 * {
@@ -28,6 +47,8 @@ body {
   margin: 0;
   min-width: 360px;
   min-height: 100vh;
+  color: var(--ink);
+  background: var(--page);
 }
 
 button,
