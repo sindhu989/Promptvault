@@ -26,6 +26,7 @@ Phase 12 — private prompt and collection backup export: complete.
 Phase 13 — validated prompt import and multi-format export: complete.
 Phase 14 — authenticated activity history: complete.
 Phase 15 — account-level light and dark themes: complete.
+Phase 16 — secure admin access foundation: complete.
 
 The frontend supports creating, searching, filtering, favoriting, copying,
 editing, and deleting prompts. The UI is connected to the real API and includes
@@ -51,6 +52,9 @@ actions for the signed-in user. It shows the latest 100 entries and retains up
 to 500 entries per user.
 Users can select a light or dark appearance from account settings; the selected
 theme is saved to their profile and applied automatically on later sign-ins.
+Admin access uses a separate sign-in page, server-verified roles, rate-limited
+login, and revocable 30-minute sessions. User registration always creates a
+standard user account; it cannot assign admin privileges.
 Password recovery uses one-time tokens stored as hashes and expires after one
 hour. Reset request and submission routes are rate-limited. Recovery email is
 sent through Resend only after the sender domain is verified and the service is
@@ -84,6 +88,10 @@ The authenticated `GET /api/activity` endpoint returns up to 100 recent
 activity entries for the current user.
 The authenticated `PUT /api/auth/preferences` endpoint accepts
 `{"theme":"light"}` or `{"theme":"dark"}` and returns the updated user profile.
+Admin sign-in is available at `/admin` and uses `POST /api/admin/auth/login`.
+The protected `GET /api/admin/auth/me` and `POST /api/admin/auth/logout`
+endpoints verify and end admin sessions. Admin account bootstrap is described
+below; the broader dashboard and management tools are separate follow-on work.
 
 ## Run the frontend
 
@@ -107,7 +115,17 @@ Use a `.env` file in the backend if you want to point to an actual MongoDB insta
 PORT=5000
 JWT_SECRET=replace_with_a_random_secret_of_at_least_32_characters
 MONGODB_URI=mongodb://localhost:27017/promptvault
+ADMIN_EMAIL=your-admin-account@example.com
+ADMIN_BOOTSTRAP_SECRET=replace_with_a_private_random_secret_of_at_least_32_characters
 ```
+
+To bootstrap the first administrator, configure both `ADMIN_EMAIL` and a
+private, random `ADMIN_BOOTSTRAP_SECRET` of at least 32 characters in the backend environment. Register
+the account normally, then sign in at `/admin` with its email, password, and
+bootstrap key. The server promotes the account only after validating all three.
+Remove both bootstrap variables after promotion; the stored admin role remains.
+Admin roles must be provisioned by trusted database/environment operators and
+cannot be self-assigned through the public registration or profile APIs.
 
 If `MONGODB_URI` is omitted, users and prompts are saved in
 `backend/.data/store.json`. The local data directory is excluded from Git.

@@ -1,0 +1,135 @@
+.admin-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(ellipse at 50% 0%, #eae4ff 0, transparent 48%),
+    #f7f6fa;
+}
+
+.admin-card {
+  width: min(100%, 440px);
+  padding: 32px;
+  border: 1px solid #e8e5ef;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 24px 80px rgb(37 28 66 / 12%);
+}
+
+.admin-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #27253a;
+  font-family: Manrope, sans-serif;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.admin-brand strong {
+  color: #7358d6;
+}
+
+.admin-brand-mark {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 11px;
+  color: #fff;
+  background: #7358d6;
+}
+
+.admin-login,
+.admin-welcome {
+  display: grid;
+  gap: 17px;
+  margin-top: 42px;
+}
+
+.admin-kicker {
+  color: #7358d6;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+}
+
+.admin-login h1,
+.admin-welcome h1 {
+  margin: -10px 0 -10px;
+  color: #27253a;
+  font-family: Manrope, sans-serif;
+  font-size: 27px;
+}
+
+.admin-description {
+  margin: 0;
+  color: #777487;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.admin-login label {
+  display: grid;
+  gap: 7px;
+  color: #514e62;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-login input {
+  width: 100%;
+  min-height: 43px;
+  padding: 10px 12px;
+  border: 1px solid #dedce7;
+  border-radius: 9px;
+  color: #27253a;
+  background: #fff;
+}
+
+.admin-primary-button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 9px;
+  color: #fff;
+  background: #7358d6;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-primary-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.admin-error,
+.admin-message,
+.admin-session-note {
+  padding: 11px 12px;
+  border-radius: 9px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.admin-error {
+  color: #9b2c37;
+  background: #fff0f0;
+}
+
+.admin-message,
+.admin-session-note {
+  color: #5a4a91;
+  background: #f3f0ff;
+}
+
+.admin-status {
+  margin: 42px 0 8px;
+  color: #777487;
+}
+
+@media (max-width: 480px) {
+  .admin-card {
+    padding: 24px;
+  }
+}

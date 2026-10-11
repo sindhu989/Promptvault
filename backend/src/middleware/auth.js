@@ -13,6 +13,9 @@ async function protect(req, res, next) {
     }
 
     const decoded = verifyToken(token)
+    if (decoded.scope && decoded.scope !== 'user') {
+      return res.status(401).json({ message: 'Invalid or expired token.' })
+    }
 
     if (mongoose.connection.readyState === 1) {
       const user = await User.findById(decoded.id).lean()
@@ -24,6 +27,7 @@ async function protect(req, res, next) {
         id: String(user._id),
         name: user.name,
         email: user.email,
+        role: user.role === 'admin' ? 'admin' : 'user',
         theme: user.theme === 'dark' ? 'dark' : 'light',
       }
       return next()
@@ -38,6 +42,7 @@ async function protect(req, res, next) {
       id: user.id,
       name: user.name,
       email: user.email,
+      role: user.role === 'admin' ? 'admin' : 'user',
       theme: user.theme === 'dark' ? 'dark' : 'light',
     }
     return next()

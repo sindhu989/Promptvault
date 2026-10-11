@@ -11,6 +11,7 @@ function sanitizeUser(user) {
   const { password, _id, ...safeUser } = user.toObject ? user.toObject() : user
   return {
     ...safeUser,
+    role: safeUser.role === 'admin' ? 'admin' : 'user',
     theme: safeUser.theme === 'dark' ? 'dark' : 'light',
     id: safeUser.id || String(_id || safeUser._id || user.id),
   }

@@ -10,6 +10,7 @@ const collectionRoutes = require('./routes/collectionRoutes')
 const publicRoutes = require('./routes/publicRoutes')
 const importExportRoutes = require('./routes/importExportRoutes')
 const activityRoutes = require('./routes/activityRoutes')
+const adminAuthRoutes = require('./routes/adminAuthRoutes')
 
 dotenv.config()
 
@@ -47,6 +48,7 @@ app.get('/api/health', (req, res) => {
 })
 
 app.use('/api/auth', authRoutes)
+app.use('/api/admin/auth', adminAuthRoutes)
 app.use('/api/public', publicRoutes)
 app.use('/api/prompts', promptRoutes)
 app.use('/api/collections', collectionRoutes)

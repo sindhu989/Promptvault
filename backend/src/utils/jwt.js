@@ -15,8 +15,15 @@ function signToken(userId) {
   })
 }
 
+function signAdminToken(userId, sessionId) {
+  return jwt.sign({ id: userId, scope: 'admin', jti: sessionId }, getSecret(), {
+    expiresIn: '30m',
+    audience: 'promptvault-admin',
+  })
+}
+
 function verifyToken(token) {
   return jwt.verify(token, getSecret())
 }
 
-module.exports = { signToken, verifyToken }
+module.exports = { signToken, signAdminToken, verifyToken }

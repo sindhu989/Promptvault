@@ -6,7 +6,7 @@ const dataFile = path.join(dataDirectory, 'store.json')
 
 function readState() {
   if (!fs.existsSync(dataFile)) {
-    return { users: [], prompts: [], collections: [] }
+    return { users: [], prompts: [], collections: [], adminSessions: [] }
   }
 
   const parsed = JSON.parse(fs.readFileSync(dataFile, 'utf8'))
@@ -15,11 +15,13 @@ function readState() {
   }
   if (!Array.isArray(parsed.collections)) parsed.collections = []
   if (!Array.isArray(parsed.activities)) parsed.activities = []
+  if (!Array.isArray(parsed.adminSessions)) parsed.adminSessions = []
   return parsed
 }
 
 const state = global.__promptvault_state || readState()
 if (!Array.isArray(state.activities)) state.activities = []
+if (!Array.isArray(state.adminSessions)) state.adminSessions = []
 global.__promptvault_state = state
 
 function save() {
@@ -34,5 +36,6 @@ module.exports = {
   prompts: state.prompts,
   collections: state.collections,
   activities: state.activities,
+  adminSessions: state.adminSessions,
   save,
 }
