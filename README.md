@@ -24,6 +24,7 @@ Phase 10 — authenticated password change: complete.
 Phase 11 — email password recovery: implemented; configure Resend to enable delivery.
 Phase 12 — private prompt and collection backup export: complete.
 Phase 13 — validated prompt import and multi-format export: complete.
+Phase 14 — authenticated activity history: complete.
 
 The frontend supports creating, searching, filtering, favoriting, copying,
 editing, and deleting prompts. The UI is connected to the real API and includes
@@ -44,6 +45,9 @@ assign new IDs and ownership, and remap collection membership. Imports are
 limited to 100 prompts and 100 collections per file, with a 900 KB dashboard
 file-size limit. JSON backups and exports may contain private prompt content
 and should be stored securely.
+The Activity view records recent prompt, collection, saved-test, and import
+actions for the signed-in user. It shows the latest 100 entries and retains up
+to 500 entries per user.
 Password recovery uses one-time tokens stored as hashes and expires after one
 hour. Reset request and submission routes are rate-limited. Recovery email is
 sent through Resend only after the sender domain is verified and the service is
@@ -73,6 +77,8 @@ the file's text in `content`. JSON accepts either a prompt array or a PromptVaul
 backup object. CSV requires `title`, `content`, and `category` columns.
 Markdown and TXT imports accept PromptVault's exported structure; a plain TXT
 file is also accepted as one prompt.
+The authenticated `GET /api/activity` endpoint returns up to 100 recent
+activity entries for the current user.
 
 ## Run the frontend
 

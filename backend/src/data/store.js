@@ -14,10 +14,12 @@ function readState() {
     throw new Error(`Invalid PromptVault local data file: ${dataFile}`)
   }
   if (!Array.isArray(parsed.collections)) parsed.collections = []
+  if (!Array.isArray(parsed.activities)) parsed.activities = []
   return parsed
 }
 
 const state = global.__promptvault_state || readState()
+if (!Array.isArray(state.activities)) state.activities = []
 global.__promptvault_state = state
 
 function save() {
@@ -31,5 +33,6 @@ module.exports = {
   users: state.users,
   prompts: state.prompts,
   collections: state.collections,
+  activities: state.activities,
   save,
 }

@@ -4,6 +4,7 @@ const { collections: localCollections, prompts: localPrompts, save } = require('
 const Collection = require('../models/Collection')
 const Prompt = require('../models/Prompt')
 const { exportPrompts, parseImport, validateRecords } = require('../services/promptImportExport')
+const { recordActivity } = require('../services/activityLog')
 
 function isMongoConnected() {
   return mongoose.connection.readyState === 1
@@ -187,6 +188,14 @@ async function importPrompts(req, res) {
     importedPromptCount = promptPayloads.length
     importedCollectionCount = collectionPayloads.length
   }
+
+  await recordActivity({
+    userId: req.user.id,
+    action: 'prompts.imported',
+    entityType: 'import',
+    entityTitle: `${importedPromptCount} prompt${importedPromptCount === 1 ? '' : 's'}`,
+    details: `${importedCollectionCount} collection${importedCollectionCount === 1 ? '' : 's'}`,
+  })
 
   return res.status(201).json({
     message: `Imported ${importedPromptCount} prompt${importedPromptCount === 1 ? '' : 's'} and ${importedCollectionCount} collection${importedCollectionCount === 1 ? '' : 's'}. Imported prompts and collections are private.`,

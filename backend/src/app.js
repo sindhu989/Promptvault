@@ -9,6 +9,7 @@ const promptRoutes = require('./routes/promptRoutes')
 const collectionRoutes = require('./routes/collectionRoutes')
 const publicRoutes = require('./routes/publicRoutes')
 const importExportRoutes = require('./routes/importExportRoutes')
+const activityRoutes = require('./routes/activityRoutes')
 
 dotenv.config()
 
@@ -49,6 +50,7 @@ app.use('/api/auth', authRoutes)
 app.use('/api/public', publicRoutes)
 app.use('/api/prompts', promptRoutes)
 app.use('/api/collections', collectionRoutes)
+app.use('/api/activity', activityRoutes)
 app.use('/api', importExportRoutes)
 
 app.use(express.static(frontendBuildPath))

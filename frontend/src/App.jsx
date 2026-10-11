@@ -24,6 +24,36 @@ function formatDate(date) {
   }).format(new Date(date))
 }
 
+function formatActivityDate(date) {
+  const value = new Date(date)
+  if (Number.isNaN(value.getTime())) return 'Unknown date'
+  return new Intl.DateTimeFormat('en', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(value)
+}
+
+const activityLabels = {
+  'prompt.created': 'Created prompt',
+  'prompt.updated': 'Updated prompt',
+  'prompt.favorite_added': 'Added prompt to favorites',
+  'prompt.favorite_removed': 'Removed prompt from favorites',
+  'prompt.sharing_enabled': 'Enabled prompt sharing',
+  'prompt.sharing_disabled': 'Disabled prompt sharing',
+  'prompt.version_restored': 'Restored a prompt version',
+  'prompt.duplicated': 'Duplicated prompt',
+  'prompt.archived': 'Archived prompt',
+  'prompt.restored': 'Restored prompt',
+  'prompt.deleted': 'Deleted prompt',
+  'prompt.test_saved': 'Saved prompt test result',
+  'collection.created': 'Created collection',
+  'collection.updated': 'Updated collection',
+  'collection.deleted': 'Deleted collection',
+  'collection.prompt_added': 'Added prompt to collection',
+  'collection.prompt_removed': 'Removed prompt from collection',
+  'prompts.imported': 'Imported prompt data',
+}
+
 function promptVariables(content) {
   return [...new Set([...content.matchAll(/{{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*}}/g)].map((match) => match[1]))]
 }
@@ -53,7 +83,10 @@ function App() {
   const [notice, setNotice] = useState('')
   const [prompts, setPrompts] = useState([])
   const [collections, setCollections] = useState([])
+  const [activities, setActivities] = useState([])
   const [loadingPrompts, setLoadingPrompts] = useState(false)
+  const [loadingActivity, setLoadingActivity] = useState(false)
+  const [activityRefreshKey, setActivityRefreshKey] = useState(0)
   const [activeCategory, setActiveCategory] = useState('All prompts')
   const [selectedCollection, setSelectedCollection] = useState(null)
   const [collectionPromptIds, setCollectionPromptIds] = useState([])
@@ -123,6 +156,36 @@ function App() {
     loadPrompts()
   }, [token])
 
+  useEffect(() => {
+    if (!token || activeCategory !== 'Activity') return undefined
+    let active = true
+
+    async function loadActivity() {
+      setLoadingActivity(true)
+      setError('')
+      try {
+        const response = await fetch(`${API_URL}/api/activity`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        const data = await response.json()
+        if (!response.ok) {
+          if (response.status === 401) logout()
+          throw new Error(data.message || 'Could not load activity history.')
+        }
+        if (active) setActivities(data.activity || [])
+      } catch (activityError) {
+        if (active) setError(activityError.message || 'Could not load activity history.')
+      } finally {
+        if (active) setLoadingActivity(false)
+      }
+    }
+
+    loadActivity()
+    return () => {
+      active = false
+    }
+  }, [activeCategory, activityRefreshKey, token])
+
   const categories = useMemo(
     () => [...new Set(prompts.filter((prompt) => !prompt.archived).map((prompt) => prompt.category))].sort(),
     [prompts],
@@ -183,6 +246,7 @@ function App() {
     setUser(null)
     setPrompts([])
     setCollections([])
+    setActivities([])
     setSelectedCollection(null)
     setCollectionPromptIds([])
     setAuthMode('login')
@@ -270,6 +334,7 @@ function App() {
   }
 
   async function apiRequest(path, options = {}) {
+    const method = (options.method || 'GET').toUpperCase()
     const response = await fetch(`${API_URL}${path}`, {
       ...options,
       headers: {
@@ -288,6 +353,9 @@ function App() {
       throw new Error(data.message || 'Request failed.')
     }
 
+    if (activeCategory === 'Activity' && method !== 'GET') {
+      setActivityRefreshKey((current) => current + 1)
+    }
     return data
   }
 
@@ -921,6 +989,13 @@ function App() {
             <span>Archived</span>
             <span className="nav-count">{archivedCount}</span>
           </button>
+          <button
+            className={`nav-item ${activeCategory === 'Activity' ? 'active' : ''}`}
+            onClick={() => setActiveCategory('Activity')}
+          >
+            <span className="nav-icon" aria-hidden="true">◷</span>
+            <span>Activity</span>
+          </button>
         </nav>
 
         <div className="category-heading">
@@ -1064,16 +1139,50 @@ function App() {
           <div className="welcome-row">
             <div>
               <p className="eyebrow">YOUR PERSONAL PROMPT LIBRARY</p>
-              <h1>{activeCategory === 'All prompts' ? 'Good ideas, kept close.' : activeCategory === 'Archived' ? 'Out of sight, still safe.' : activeCategory === 'Collection' ? selectedCollection?.name || 'Collection' : activeCategory}</h1>
+              <h1>{activeCategory === 'All prompts' ? 'Good ideas, kept close.' : activeCategory === 'Archived' ? 'Out of sight, still safe.' : activeCategory === 'Collection' ? selectedCollection?.name || 'Collection' : activeCategory === 'Activity' ? 'Activity history' : activeCategory}</h1>
               <p className="welcome-copy">
-                Keep your prompting workflow organized, searchable, and ready whenever inspiration strikes.
+                {activeCategory === 'Activity'
+                  ? 'Review recent changes to your prompts and collections.'
+                  : 'Keep your prompting workflow organized, searchable, and ready whenever inspiration strikes.'}
               </p>
             </div>
-            <button className="primary-button" onClick={() => setIsCreating(true)}>
-              <span aria-hidden="true">＋</span> New prompt
-            </button>
+            {activeCategory !== 'Activity' && (
+              <button className="primary-button" onClick={() => setIsCreating(true)}>
+                <span aria-hidden="true">＋</span> New prompt
+              </button>
+            )}
           </div>
 
+          {error && <div className="storage-warning">{error}</div>}
+
+          {activeCategory === 'Activity' ? (
+            <section className="activity-panel" aria-label="Recent activity">
+              {loadingActivity ? (
+                <div className="loading-state">Loading activity...</div>
+              ) : activities.length ? (
+                <ol className="activity-list">
+                  {activities.map((item) => (
+                    <li className="activity-item" key={item.id}>
+                      <span className="activity-marker" aria-hidden="true">•</span>
+                      <div className="activity-description">
+                        <strong>{activityLabels[item.action] || 'Updated PromptVault'}</strong>
+                        <span>{item.entityTitle}</span>
+                        {item.details && <small>{item.details}</small>}
+                      </div>
+                      <time dateTime={item.createdAt}>{formatActivityDate(item.createdAt)}</time>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <div className="empty-state">
+                  <span className="empty-icon" aria-hidden="true">◷</span>
+                  <h3>No activity yet</h3>
+                  <p>Actions you take on prompts and collections will appear here.</p>
+                </div>
+              )}
+            </section>
+          ) : (
+            <>
           <div className="stats-row">
             <div className="stat-card">
               <span className="stat-icon purple" aria-hidden="true">▤</span>
@@ -1105,8 +1214,6 @@ function App() {
               </select>
             </label>
           </div>
-
-          {error && <div className="storage-warning">{error}</div>}
 
           {loadingPrompts ? (
             <div className="loading-state">Loading prompts...</div>
@@ -1230,6 +1337,8 @@ function App() {
                 </button>
               )}
             </div>
+          )}
+            </>
           )}
         </section>
       </main>

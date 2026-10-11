@@ -3,6 +3,7 @@ const crypto = require('crypto')
 const { prompts, save } = require('../data/store')
 const Prompt = require('../models/Prompt')
 const { extractVariables, renderPrompt } = require('../services/promptTester')
+const { recordActivity } = require('../services/activityLog')
 
 function isMongoConnected() {
   return mongoose.connection.readyState === 1
@@ -121,6 +122,13 @@ async function createPrompt(req, res) {
 
   if (isMongoConnected()) {
     const newPrompt = await Prompt.create(promptPayload)
+    await recordActivity({
+      userId: req.user.id,
+      action: 'prompt.created',
+      entityType: 'prompt',
+      entityId: newPrompt.id,
+      entityTitle: newPrompt.title,
+    })
     return res.status(201).json({
       message: 'Prompt created successfully.',
       prompt: normalizePrompt(newPrompt),
@@ -136,6 +144,13 @@ async function createPrompt(req, res) {
 
   prompts.unshift(newPrompt)
   save()
+  await recordActivity({
+    userId: req.user.id,
+    action: 'prompt.created',
+    entityType: 'prompt',
+    entityId: newPrompt.id,
+    entityTitle: newPrompt.title,
+  })
   return res.status(201).json({ message: 'Prompt created successfully.', prompt: newPrompt })
 }
 
@@ -163,6 +178,15 @@ async function updatePrompt(req, res) {
   prompt.updatedAt = new Date()
   if (isMongoConnected()) {
     await prompt.save()
+    await recordActivity({
+      userId: req.user.id,
+      action: body.favorite !== undefined
+        ? body.favorite ? 'prompt.favorite_added' : 'prompt.favorite_removed'
+        : 'prompt.updated',
+      entityType: 'prompt',
+      entityId: prompt.id,
+      entityTitle: prompt.title,
+    })
     return res.json({
       message: 'Prompt updated successfully.',
       prompt: normalizePrompt(prompt),
@@ -171,6 +195,15 @@ async function updatePrompt(req, res) {
 
   prompt.updatedAt = prompt.updatedAt.toISOString()
   save()
+  await recordActivity({
+    userId: req.user.id,
+    action: body.favorite !== undefined
+      ? body.favorite ? 'prompt.favorite_added' : 'prompt.favorite_removed'
+      : 'prompt.updated',
+    entityType: 'prompt',
+    entityId: prompt.id,
+    entityTitle: prompt.title,
+  })
   return res.json({ message: 'Prompt updated successfully.', prompt })
 }
 
@@ -210,7 +243,8 @@ async function setPromptVisibility(req, res) {
   }
 
   const isPublic = Boolean(req.body?.isPublic)
-  if (isPublic !== Boolean(prompt.isPublic)) {
+  const visibilityChanged = isPublic !== Boolean(prompt.isPublic)
+  if (visibilityChanged) {
     prompt.isPublic = isPublic
     prompt.shareId = isPublic ? crypto.randomUUID() : undefined
   }
@@ -223,6 +257,15 @@ async function setPromptVisibility(req, res) {
     save()
   }
 
+  if (visibilityChanged) {
+    await recordActivity({
+      userId: req.user.id,
+      action: isPublic ? 'prompt.sharing_enabled' : 'prompt.sharing_disabled',
+      entityType: 'prompt',
+      entityId: prompt.id,
+      entityTitle: prompt.title,
+    })
+  }
   return res.json({
     message: isPublic ? 'Prompt sharing enabled.' : 'Prompt sharing disabled.',
     prompt: normalizePrompt(prompt),
@@ -277,6 +320,14 @@ async function restorePromptVersion(req, res) {
 
   if (isMongoConnected()) {
     await prompt.save()
+    await recordActivity({
+      userId: req.user.id,
+      action: 'prompt.version_restored',
+      entityType: 'prompt',
+      entityId: prompt.id,
+      entityTitle: prompt.title,
+      details: `Version ${versionNumber}`,
+    })
     return res.json({
       message: `Version ${versionNumber} restored as a new version.`,
       prompt: normalizePrompt(prompt),
@@ -285,6 +336,14 @@ async function restorePromptVersion(req, res) {
 
   prompt.updatedAt = prompt.updatedAt.toISOString()
   save()
+  await recordActivity({
+    userId: req.user.id,
+    action: 'prompt.version_restored',
+    entityType: 'prompt',
+    entityId: prompt.id,
+    entityTitle: prompt.title,
+    details: `Version ${versionNumber}`,
+  })
   return res.json({
     message: `Version ${versionNumber} restored as a new version.`,
     prompt,
@@ -313,6 +372,14 @@ async function duplicatePrompt(req, res) {
 
   if (isMongoConnected()) {
     const duplicate = await Prompt.create(duplicatePayload)
+    await recordActivity({
+      userId: req.user.id,
+      action: 'prompt.duplicated',
+      entityType: 'prompt',
+      entityId: duplicate.id,
+      entityTitle: duplicate.title,
+      details: `Copied from ${source.title}`,
+    })
     return res.status(201).json({
       message: 'Prompt duplicated successfully.',
       prompt: normalizePrompt(duplicate),
@@ -327,6 +394,14 @@ async function duplicatePrompt(req, res) {
   }
   prompts.unshift(duplicate)
   save()
+  await recordActivity({
+    userId: req.user.id,
+    action: 'prompt.duplicated',
+    entityType: 'prompt',
+    entityId: duplicate.id,
+    entityTitle: duplicate.title,
+    details: `Copied from ${source.title}`,
+  })
   return res.status(201).json({
     message: 'Prompt duplicated successfully.',
     prompt: duplicate,
@@ -344,6 +419,13 @@ async function setPromptArchived(req, res, archived) {
 
   if (isMongoConnected()) {
     await prompt.save()
+    await recordActivity({
+      userId: req.user.id,
+      action: archived ? 'prompt.archived' : 'prompt.restored',
+      entityType: 'prompt',
+      entityId: prompt.id,
+      entityTitle: prompt.title,
+    })
     return res.json({
       message: archived ? 'Prompt archived.' : 'Prompt restored.',
       prompt: normalizePrompt(prompt),
@@ -352,6 +434,13 @@ async function setPromptArchived(req, res, archived) {
 
   prompt.updatedAt = prompt.updatedAt.toISOString()
   save()
+  await recordActivity({
+    userId: req.user.id,
+    action: archived ? 'prompt.archived' : 'prompt.restored',
+    entityType: 'prompt',
+    entityId: prompt.id,
+    entityTitle: prompt.title,
+  })
   return res.json({
     message: archived ? 'Prompt archived.' : 'Prompt restored.',
     prompt,
@@ -425,6 +514,13 @@ async function savePromptTestResult(req, res) {
   if (isMongoConnected()) {
     prompt.testRuns.push(result)
     await prompt.save()
+    await recordActivity({
+      userId: req.user.id,
+      action: 'prompt.test_saved',
+      entityType: 'prompt',
+      entityId: prompt.id,
+      entityTitle: prompt.title,
+    })
     return res.status(201).json({
       message: 'Test result saved successfully.',
       testRun: prompt.testRuns[prompt.testRuns.length - 1],
@@ -434,6 +530,13 @@ async function savePromptTestResult(req, res) {
   if (!Array.isArray(prompt.testRuns)) prompt.testRuns = []
   prompt.testRuns.push({ ...result, createdAt: result.createdAt.toISOString() })
   save()
+  await recordActivity({
+    userId: req.user.id,
+    action: 'prompt.test_saved',
+    entityType: 'prompt',
+    entityId: prompt.id,
+    entityTitle: prompt.title,
+  })
   return res.status(201).json({
     message: 'Test result saved successfully.',
     testRun: prompt.testRuns[prompt.testRuns.length - 1],
@@ -461,6 +564,13 @@ async function deletePrompt(req, res) {
     if (!prompt) {
       return res.status(404).json({ message: 'Prompt not found.' })
     }
+    await recordActivity({
+      userId: req.user.id,
+      action: 'prompt.deleted',
+      entityType: 'prompt',
+      entityId: prompt.id,
+      entityTitle: prompt.title,
+    })
     return res.json({
       message: 'Prompt deleted successfully.',
       prompt: normalizePrompt(prompt),
@@ -476,6 +586,13 @@ async function deletePrompt(req, res) {
 
   const [deletedPrompt] = prompts.splice(index, 1)
   save()
+  await recordActivity({
+    userId: req.user.id,
+    action: 'prompt.deleted',
+    entityType: 'prompt',
+    entityId: deletedPrompt.id,
+    entityTitle: deletedPrompt.title,
+  })
   return res.json({ message: 'Prompt deleted successfully.', prompt: deletedPrompt })
 }
 

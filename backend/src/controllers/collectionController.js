@@ -3,6 +3,7 @@ const mongoose = require('mongoose')
 const { collections, prompts, save } = require('../data/store')
 const Collection = require('../models/Collection')
 const Prompt = require('../models/Prompt')
+const { recordActivity } = require('../services/activityLog')
 
 function isMongoConnected() {
   return mongoose.connection.readyState === 1
@@ -50,6 +51,13 @@ async function createCollection(req, res) {
 
   if (isMongoConnected()) {
     const collection = await Collection.create(collectionData)
+    await recordActivity({
+      userId: req.user.id,
+      action: 'collection.created',
+      entityType: 'collection',
+      entityId: collection.id,
+      entityTitle: collection.name,
+    })
     return res.status(201).json({
       message: 'Collection created.',
       collection: normalizeCollection(collection),
@@ -64,6 +72,13 @@ async function createCollection(req, res) {
   }
   collections.unshift(collection)
   save()
+  await recordActivity({
+    userId: req.user.id,
+    action: 'collection.created',
+    entityType: 'collection',
+    entityId: collection.id,
+    entityTitle: collection.name,
+  })
   return res.status(201).json({ message: 'Collection created.', collection: normalizeCollection(collection) })
 }
 
@@ -91,6 +106,13 @@ async function updateCollection(req, res) {
     save()
   }
 
+  await recordActivity({
+    userId: req.user.id,
+    action: 'collection.updated',
+    entityType: 'collection',
+    entityId: collection.id || String(collection._id),
+    entityTitle: collection.name,
+  })
   return res.json({ message: 'Collection updated.', collection: normalizeCollection(collection) })
 }
 
@@ -98,6 +120,13 @@ async function deleteCollection(req, res) {
   if (isMongoConnected()) {
     const collection = await Collection.findOneAndDelete({ _id: req.params.id, userId: req.user.id })
     if (!collection) return res.status(404).json({ message: 'Collection not found.' })
+    await recordActivity({
+      userId: req.user.id,
+      action: 'collection.deleted',
+      entityType: 'collection',
+      entityId: collection.id,
+      entityTitle: collection.name,
+    })
     return res.json({ message: 'Collection deleted.' })
   }
 
@@ -105,8 +134,15 @@ async function deleteCollection(req, res) {
     (collection) => collection.id === req.params.id && collection.userId === req.user.id,
   )
   if (index === -1) return res.status(404).json({ message: 'Collection not found.' })
-  collections.splice(index, 1)
+  const [deletedCollection] = collections.splice(index, 1)
   save()
+  await recordActivity({
+    userId: req.user.id,
+    action: 'collection.deleted',
+    entityType: 'collection',
+    entityId: deletedCollection.id,
+    entityTitle: deletedCollection.name,
+  })
   return res.json({ message: 'Collection deleted.' })
 }
 
@@ -119,7 +155,8 @@ async function addPrompt(req, res) {
     : prompts.find((item) => item.id === req.params.promptId && item.userId === req.user.id)
   if (!prompt) return res.status(404).json({ message: 'Prompt not found.' })
 
-  if (!collection.promptIds.includes(String(req.params.promptId))) {
+  const wasAdded = !collection.promptIds.includes(String(req.params.promptId))
+  if (wasAdded) {
     collection.promptIds.push(String(req.params.promptId))
   }
   collection.updatedAt = new Date()
@@ -130,6 +167,16 @@ async function addPrompt(req, res) {
     collection.updatedAt = collection.updatedAt.toISOString()
     save()
   }
+  if (wasAdded) {
+    await recordActivity({
+      userId: req.user.id,
+      action: 'collection.prompt_added',
+      entityType: 'collection',
+      entityId: collection.id || String(collection._id),
+      entityTitle: collection.name,
+      details: prompt.title,
+    })
+  }
   return res.json({ message: 'Prompt added to collection.', collection: normalizeCollection(collection) })
 }
 
@@ -137,6 +184,7 @@ async function removePrompt(req, res) {
   const collection = await findOwnedCollection(req.params.id, req.user.id)
   if (!collection) return res.status(404).json({ message: 'Collection not found.' })
 
+  const wasRemoved = collection.promptIds.includes(String(req.params.promptId))
   collection.promptIds = collection.promptIds.filter((id) => String(id) !== req.params.promptId)
   collection.updatedAt = new Date()
   if (isMongoConnected()) {
@@ -144,6 +192,19 @@ async function removePrompt(req, res) {
   } else {
     collection.updatedAt = collection.updatedAt.toISOString()
     save()
+  }
+  if (wasRemoved) {
+    const prompt = isMongoConnected()
+      ? await Prompt.findOne({ _id: req.params.promptId, userId: req.user.id }).select('title').lean()
+      : prompts.find((item) => item.id === req.params.promptId && item.userId === req.user.id)
+    await recordActivity({
+      userId: req.user.id,
+      action: 'collection.prompt_removed',
+      entityType: 'collection',
+      entityId: collection.id || String(collection._id),
+      entityTitle: collection.name,
+      details: prompt?.title || 'Prompt',
+    })
   }
   return res.json({ message: 'Prompt removed from collection.', collection: normalizeCollection(collection) })
 }

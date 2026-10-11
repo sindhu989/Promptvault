@@ -768,6 +768,72 @@ h1 {
   font-size: 10px;
 }
 
+.activity-panel {
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.activity-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.activity-item {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 72px;
+  padding: 13px 18px;
+  border-bottom: 1px solid #f0eff4;
+}
+
+.activity-item:last-child {
+  border-bottom: 0;
+}
+
+.activity-marker {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  color: var(--purple);
+  background: var(--purple-pale);
+  border-radius: 7px;
+  font-size: 19px;
+  line-height: 1;
+}
+
+.activity-description {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  font-size: 11px;
+}
+
+.activity-description strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.activity-description > span,
+.activity-description small,
+.activity-item time {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-description small {
+  color: #9995a8;
+}
+
 .storage-warning {
   margin: -2px 0 14px;
   padding: 10px 12px;
@@ -1143,6 +1209,14 @@ h1 {
 
   .prompt-grid {
     grid-template-columns: 1fr;
+  }
+
+  .activity-item {
+    grid-template-columns: 22px minmax(0, 1fr);
+  }
+
+  .activity-item time {
+    grid-column: 2;
   }
 
   .prompt-card {
