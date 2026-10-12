@@ -1,14 +1,16 @@
 const assert = require('node:assert/strict')
 const bcrypt = require('../backend/node_modules/bcryptjs')
+const fs = require('node:fs')
 const { after, before, test } = require('node:test')
 const app = require('../backend/src/app')
-const { users } = require('../backend/src/data/store')
+const { activities, adminSessions, collections, prompts, users } = require('../backend/src/data/store')
 const {
   adminCookieName,
   setAdminCookie,
   setUserCookie,
   userCookieName,
 } = require('../backend/src/utils/authCookie')
+const { signAdminToken, signToken } = require('../backend/src/utils/jwt')
 
 let server
 let baseUrl
@@ -117,4 +119,147 @@ test('malformed JSON receives a client error without leaking server details', as
   })
   assert.equal(response.status, 400)
   assert.deepEqual(await response.json(), { message: 'Request body contains invalid JSON.' })
+})
+
+test('admin prompt management is protected and hides unapproved public prompts', async () => {
+  const owner = {
+    id: 'security-prompt-owner',
+    name: 'Prompt Owner',
+    email: 'prompt-owner@example.test',
+    role: 'user',
+  }
+  const admin = {
+    id: 'security-prompt-admin',
+    name: 'Prompt Admin',
+    email: 'prompt-admin@example.test',
+    role: 'admin',
+    authVersion: 0,
+  }
+  const prompt = {
+    id: 'security-prompt-pending',
+    userId: owner.id,
+    title: 'Moderation [regression] prompt',
+    description: '',
+    content: 'Private test content',
+    category: 'Testing',
+    tags: ['moderation'],
+    isPublic: true,
+    shareId: 'security-prompt-share',
+    moderationStatus: 'pending',
+    archived: false,
+    testRuns: [{ output: 'private test output' }],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }
+  const privatePrompt = {
+    id: 'security-prompt-private',
+    userId: owner.id,
+    title: 'Private sharing regression prompt',
+    description: '',
+    content: 'Private content',
+    category: 'Testing',
+    tags: [],
+    isPublic: false,
+    archived: false,
+    versionHistory: [],
+    testRuns: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }
+  const collection = {
+    id: 'security-prompt-collection',
+    userId: owner.id,
+    name: 'Public collection',
+    description: '',
+    promptIds: [prompt.id],
+    isPublic: true,
+    shareId: 'security-collection-share',
+  }
+  const sessionId = 'security-prompt-admin-session'
+  const activitySnapshot = [...activities]
+  const originalFsMethods = {
+    mkdirSync: fs.mkdirSync,
+    writeFileSync: fs.writeFileSync,
+    renameSync: fs.renameSync,
+  }
+  const adminSession = {
+    tokenId: sessionId,
+    userId: admin.id,
+    revokedAt: null,
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  }
+  users.push(owner, admin)
+  prompts.push(prompt, privatePrompt)
+  collections.push(collection)
+  adminSessions.push(adminSession)
+  fs.mkdirSync = () => {}
+  fs.writeFileSync = () => {}
+  fs.renameSync = () => {}
+
+  try {
+    const unauthorized = await fetch(`${baseUrl}/api/admin/dashboard/prompts`)
+    assert.equal(unauthorized.status, 401)
+
+    const cookie = `${adminCookieName}=${signAdminToken(admin.id, sessionId, 0)}`
+    const listResponse = await fetch(
+      `${baseUrl}/api/admin/dashboard/prompts?moderationStatus=pending&search=%5Bregression%5D`,
+      { headers: { Cookie: cookie } },
+    )
+    assert.equal(listResponse.status, 200)
+    const listBody = await listResponse.json()
+    assert.deepEqual(listBody.prompts.map((item) => item.id), [prompt.id])
+    assert.equal(listBody.prompts[0].testRuns, undefined)
+
+    const detailResponse = await fetch(
+      `${baseUrl}/api/admin/dashboard/prompts/${prompt.id}`,
+      { headers: { Cookie: cookie } },
+    )
+    assert.equal((await detailResponse.json()).prompt.testRuns, undefined)
+    assert.equal((await fetch(`${baseUrl}/api/public/prompts/${prompt.shareId}`)).status, 404)
+    const pendingCollectionResponse = await fetch(`${baseUrl}/api/public/collections/${collection.shareId}`)
+    assert.deepEqual((await pendingCollectionResponse.json()).prompts, [])
+
+    prompt.moderationStatus = 'approved'
+    assert.equal((await fetch(`${baseUrl}/api/public/prompts/${prompt.shareId}`)).status, 200)
+    const approvedCollectionResponse = await fetch(`${baseUrl}/api/public/collections/${collection.shareId}`)
+    assert.equal((await approvedCollectionResponse.json()).prompts.length, 1)
+
+    const userCookie = `${userCookieName}=${signToken(owner.id, 0)}`
+    const sharingResponse = await fetch(`${baseUrl}/api/prompts/${privatePrompt.id}/sharing`, {
+      method: 'PUT',
+      headers: { Cookie: userCookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isPublic: true }),
+    })
+    assert.equal(sharingResponse.status, 200)
+    assert.equal((await sharingResponse.json()).prompt.moderationStatus, 'pending')
+    const directUpdateResponse = await fetch(`${baseUrl}/api/prompts/${privatePrompt.id}`, {
+      method: 'PUT',
+      headers: { Cookie: userCookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isPublic: false }),
+    })
+    assert.equal(directUpdateResponse.status, 200)
+    const reShareResponse = await fetch(`${baseUrl}/api/prompts/${privatePrompt.id}`, {
+      method: 'PUT',
+      headers: { Cookie: userCookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isPublic: true }),
+    })
+    assert.equal(reShareResponse.status, 200)
+    assert.equal((await reShareResponse.json()).prompt.moderationStatus, 'pending')
+  } finally {
+    fs.mkdirSync = originalFsMethods.mkdirSync
+    fs.writeFileSync = originalFsMethods.writeFileSync
+    fs.renameSync = originalFsMethods.renameSync
+    for (const [list, items] of [
+      [users, [owner, admin]],
+      [prompts, [prompt, privatePrompt]],
+      [collections, [collection]],
+      [adminSessions, [adminSession]],
+    ]) {
+      for (const item of items) {
+        const index = list.indexOf(item)
+        if (index >= 0) list.splice(index, 1)
+      }
+    }
+    activities.splice(0, activities.length, ...activitySnapshot)
+  }
 })

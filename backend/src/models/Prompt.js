@@ -36,6 +36,11 @@ const promptSchema = new mongoose.Schema(
     favorite: { type: Boolean, default: false },
     archived: { type: Boolean, default: false },
     isPublic: { type: Boolean, default: false },
+    moderationStatus: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'approved' },
+    moderationReason: { type: String, default: '' },
+    moderatedBy: { type: String, default: '' },
+    moderatedAt: { type: Date, default: null },
+    featured: { type: Boolean, default: false },
     shareId: { type: String, default: undefined },
     userId: { type: String, required: true },
     versionHistory: { type: [promptVersionSchema], default: [] },
@@ -49,5 +54,6 @@ promptSchema.index(
   { unique: true, sparse: true },
 )
 promptSchema.index({ userId: 1, updatedAt: -1 })
+promptSchema.index({ moderationStatus: 1, isPublic: 1, updatedAt: -1 })
 
 module.exports = mongoose.model('Prompt', promptSchema)

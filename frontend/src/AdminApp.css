@@ -536,6 +536,50 @@
   opacity: 0.5;
 }
 
+.admin-prompt-owner,
+.admin-prompt-owner-email {
+  display: block;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-prompt-owner {
+  color: #3c394d;
+  font-weight: 700;
+}
+
+.admin-prompt-owner-email {
+  margin-top: 3px;
+  color: #777487;
+  font-size: 11px;
+}
+
+.admin-review-status {
+  display: inline-block;
+  padding: 4px 7px;
+  border-radius: 99px;
+  background: #f1edff;
+  color: #6248c2;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.admin-review-status.pending {
+  color: #946016;
+  background: #fff5df;
+}
+
+.admin-review-status.rejected {
+  color: #a93442;
+  background: #fff0f0;
+}
+
+.admin-prompt-actions {
+  flex-wrap: wrap;
+}
+
 .admin-pagination {
   display: flex;
   align-items: center;
@@ -600,6 +644,80 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20px;
+}
+
+.admin-prompt-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-prompt-edit-grid label {
+  display: grid;
+  gap: 6px;
+  color: #514e62;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-prompt-edit-grid label.wide {
+  grid-column: 1 / -1;
+}
+
+.admin-prompt-edit-grid input,
+.admin-prompt-edit-grid textarea {
+  width: 100%;
+  min-height: 38px;
+  padding: 9px 10px;
+  border: 1px solid #dedce7;
+  border-radius: 8px;
+  color: #3c394d;
+  background: #fff;
+  font: inherit;
+  font-weight: 400;
+}
+
+.admin-prompt-edit-grid textarea {
+  resize: vertical;
+}
+
+.admin-prompt-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-prompt-controls .admin-primary-button,
+.admin-prompt-controls .admin-secondary-button {
+  padding: 0 12px;
+}
+
+.admin-secondary-button.danger {
+  color: #a93442;
+}
+
+.admin-prompt-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  padding-top: 12px;
+  border-top: 1px solid #ecebf2;
+  color: #777487;
+  font-size: 12px;
+}
+
+.admin-prompt-meta strong {
+  margin-left: 5px;
+  color: #3c394d;
+}
+
+.admin-rejection-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: #8b303b;
+  background: #fff0f0;
+  font-size: 12px;
 }
 
 .admin-user-details-grid h3 {
@@ -706,6 +824,14 @@
 
   .admin-user-details-grid {
     grid-template-columns: 1fr;
+  }
+
+  .admin-prompt-edit-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-prompt-edit-grid label.wide {
+    grid-column: auto;
   }
 
   .admin-activity-list {

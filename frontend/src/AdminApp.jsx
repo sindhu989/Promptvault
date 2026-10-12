@@ -64,6 +64,19 @@ function AdminApp() {
   const [selectedUser, setSelectedUser] = useState(null)
   const [selectedUserLoading, setSelectedUserLoading] = useState(false)
   const selectedUserId = selectedUser?.id
+  const [prompts, setPrompts] = useState([])
+  const [promptSearch, setPromptSearch] = useState('')
+  const [promptModerationFilter, setPromptModerationFilter] = useState('')
+  const [promptArchivedFilter, setPromptArchivedFilter] = useState('')
+  const [promptFeaturedFilter, setPromptFeaturedFilter] = useState('')
+  const [promptPage, setPromptPage] = useState(1)
+  const [promptPagination, setPromptPagination] = useState({ page: 1, pages: 0, total: 0 })
+  const [promptsLoading, setPromptsLoading] = useState(false)
+  const [promptsError, setPromptsError] = useState('')
+  const [promptsMessage, setPromptsMessage] = useState('')
+  const [promptRefreshKey, setPromptRefreshKey] = useState(0)
+  const [selectedPrompt, setSelectedPrompt] = useState(null)
+  const selectedPromptId = selectedPrompt?.id
 
   useEffect(() => {
     try {
@@ -226,6 +239,82 @@ function AdminApp() {
     }
   }, [hasSession, selectedUserId, userRefreshKey])
 
+  useEffect(() => {
+    if (!hasSession || !user || activeSection !== 'prompts') return undefined
+    let active = true
+    const params = new URLSearchParams({
+      page: String(promptPage),
+      search: promptSearch,
+      moderationStatus: promptModerationFilter,
+      archived: promptArchivedFilter,
+      featured: promptFeaturedFilter,
+    })
+
+    async function loadPrompts() {
+      setPromptsLoading(true)
+      setPromptsError('')
+      try {
+        const response = await fetch(`${API_URL}/api/admin/dashboard/prompts?${params}`, {
+          credentials: 'include',
+        })
+        const data = await response.json()
+        if (response.status === 401) {
+          if (active) {
+            setHasSession(false)
+            setUser(null)
+            setMessage('Your admin session expired. Sign in again.')
+          }
+          return
+        }
+        if (!response.ok) throw new Error(data.message || 'Could not load prompts.')
+        if (active) {
+          setPrompts(data.prompts || [])
+          setPromptPagination(data.pagination || { page: 1, pages: 0, total: 0 })
+        }
+      } catch (loadError) {
+        if (active) setPromptsError(loadError.message || 'Could not load prompts.')
+      } finally {
+        if (active) setPromptsLoading(false)
+      }
+    }
+
+    const debounce = window.setTimeout(loadPrompts, 200)
+    return () => {
+      active = false
+      window.clearTimeout(debounce)
+    }
+  }, [activeSection, hasSession, user, promptPage, promptSearch, promptModerationFilter, promptArchivedFilter, promptFeaturedFilter, promptRefreshKey])
+
+  useEffect(() => {
+    if (!selectedPromptId || !hasSession) return undefined
+    let active = true
+    async function loadPromptDetails() {
+      try {
+        const response = await fetch(
+          `${API_URL}/api/admin/dashboard/prompts/${encodeURIComponent(selectedPromptId)}`,
+          { credentials: 'include' },
+        )
+        const data = await response.json()
+        if (response.status === 401) {
+          if (active) {
+            setHasSession(false)
+            setUser(null)
+            setMessage('Your admin session expired. Sign in again.')
+          }
+          return
+        }
+        if (!response.ok) throw new Error(data.message || 'Could not load prompt details.')
+        if (active) setSelectedPrompt(data.prompt)
+      } catch (detailError) {
+        if (active) setPromptsError(detailError.message || 'Could not load prompt details.')
+      }
+    }
+    loadPromptDetails()
+    return () => {
+      active = false
+    }
+  }, [hasSession, selectedPromptId, promptRefreshKey])
+
   async function submitLogin(event) {
     event.preventDefault()
     setPending(true)
@@ -334,6 +423,70 @@ function AdminApp() {
     runUserAction(userRow, '/reset-access', 'POST', null, 'User access reset.')
   }
 
+  async function runPromptAction(promptRow, suffix, method, body, successMessage) {
+    setPromptsError('')
+    setPromptsMessage('')
+    try {
+      const response = await fetch(
+        `${API_URL}/api/admin/dashboard/prompts/${encodeURIComponent(promptRow.id)}${suffix}`,
+        {
+          method,
+          credentials: 'include',
+          headers: body ? { 'Content-Type': 'application/json' } : {},
+          ...(body ? { body: JSON.stringify(body) } : {}),
+        },
+      )
+      const data = await response.json()
+      if (response.status === 401) {
+        setHasSession(false)
+        setUser(null)
+        setMessage('Your admin session expired. Sign in again.')
+        return false
+      }
+      if (!response.ok) throw new Error(data.message || 'Could not complete the prompt action.')
+      setPromptsMessage(data.message || successMessage)
+      setPromptRefreshKey((current) => current + 1)
+      if (data.prompt && selectedPrompt?.id === promptRow.id) setSelectedPrompt(data.prompt)
+      if (method === 'DELETE') setSelectedPrompt(null)
+      return true
+    } catch (actionError) {
+      setPromptsError(actionError.message || 'Could not complete the prompt action.')
+      return false
+    }
+  }
+
+  async function savePromptEdits() {
+    if (!selectedPrompt) return
+    await runPromptAction(selectedPrompt, '', 'PATCH', {
+      title: selectedPrompt.title,
+      description: selectedPrompt.description,
+      content: selectedPrompt.content,
+      category: selectedPrompt.category,
+      tags: typeof selectedPrompt.tags === 'string'
+        ? selectedPrompt.tags.split(',').map((tag) => tag.trim()).filter(Boolean)
+        : selectedPrompt.tags,
+    }, 'Prompt updated.')
+  }
+
+  async function moderateSelectedPrompt(promptRow, status) {
+    let reason = ''
+    if (status === 'rejected') {
+      reason = window.prompt('Enter a reason for rejecting this shared prompt:') || ''
+      if (!reason.trim()) return
+    } else if (!window.confirm(`Approve "${promptRow.title}" for public sharing?`)) {
+      return
+    }
+    await runPromptAction(promptRow, '/moderation', 'PATCH', { status, reason }, `Prompt ${status}.`)
+  }
+
+  function deleteSelectedPrompt(promptRow) {
+    const confirmation = window.prompt(
+      `This permanently deletes "${promptRow.title}" and removes it from collections. Type DELETE to confirm.`,
+    )
+    if (confirmation !== 'DELETE') return
+    runPromptAction(promptRow, '', 'DELETE', null, 'Prompt deleted.')
+  }
+
   return (
     <main className={`admin-page ${user ? 'admin-page-dashboard' : ''}`}>
       <section className={`admin-card ${user ? 'admin-card-dashboard' : ''}`}>
@@ -369,6 +522,13 @@ function AdminApp() {
                 >
                   <span aria-hidden="true">♙</span> Users
                 </button>
+                <button
+                  className={`admin-nav-item ${activeSection === 'prompts' ? 'active' : ''}`}
+                  type="button"
+                  onClick={() => setActiveSection('prompts')}
+                >
+                  <span aria-hidden="true">✎</span> Prompts
+                </button>
               </nav>
               <div className="admin-sidebar-footer">
                 <strong>{user.name}</strong>
@@ -382,11 +542,13 @@ function AdminApp() {
               <header className="admin-dashboard-header">
                 <div>
                   <span className="admin-kicker">{activeSection === 'overview' ? 'PLATFORM OVERVIEW' : 'PLATFORM MANAGEMENT'}</span>
-                  <h1>{activeSection === 'overview' ? 'Admin dashboard' : 'User management'}</h1>
+                  <h1>{activeSection === 'overview' ? 'Admin dashboard' : activeSection === 'users' ? 'User management' : 'Prompt management'}</h1>
                   <p className="admin-description">
                     {activeSection === 'overview'
                       ? 'Platform health and current usage at a glance.'
-                      : 'Search accounts, manage access, and review user activity.'}
+                      : activeSection === 'users'
+                        ? 'Search accounts, manage access, and review user activity.'
+                        : 'Review shared prompts, manage visibility, and moderate public content.'}
                   </p>
                 </div>
                 {activeSection === 'overview' && (
@@ -446,7 +608,7 @@ function AdminApp() {
                     )}
                   </section>
                 </div>
-              ) : (
+              ) : activeSection === 'users' ? (
                 <section className="admin-users-panel">
                   <div className="admin-users-toolbar">
                     <label className="admin-search">
@@ -541,6 +703,103 @@ function AdminApp() {
                       user={selectedUser}
                       loading={selectedUserLoading}
                       onClose={() => setSelectedUser(null)}
+                    />
+                  )}
+                </section>
+              ) : (
+                <section className="admin-users-panel">
+                  <div className="admin-users-toolbar">
+                    <label className="admin-search">
+                      <span className="visually-hidden">Search prompts</span>
+                      <input
+                        value={promptSearch}
+                        onChange={(event) => { setPromptSearch(event.target.value); setPromptPage(1) }}
+                        placeholder="Search title, content, category, or tag"
+                        maxLength={100}
+                      />
+                    </label>
+                    <label>
+                      <span className="visually-hidden">Filter by moderation status</span>
+                      <select value={promptModerationFilter} onChange={(event) => { setPromptModerationFilter(event.target.value); setPromptPage(1) }}>
+                        <option value="">All moderation states</option>
+                        <option value="pending">Pending review</option>
+                        <option value="approved">Approved</option>
+                        <option value="rejected">Rejected</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span className="visually-hidden">Filter by archive status</span>
+                      <select value={promptArchivedFilter} onChange={(event) => { setPromptArchivedFilter(event.target.value); setPromptPage(1) }}>
+                        <option value="">All archive states</option>
+                        <option value="false">Active</option>
+                        <option value="true">Archived</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span className="visually-hidden">Filter by featured status</span>
+                      <select value={promptFeaturedFilter} onChange={(event) => { setPromptFeaturedFilter(event.target.value); setPromptPage(1) }}>
+                        <option value="">Featured or not</option>
+                        <option value="true">Featured</option>
+                        <option value="false">Not featured</option>
+                      </select>
+                    </label>
+                  </div>
+                  {promptsError && <div className="admin-error" role="alert">{promptsError}</div>}
+                  {promptsMessage && <div className="admin-message" role="status">{promptsMessage}</div>}
+                  {promptsLoading ? (
+                    <p className="admin-status" role="status">Loading prompts...</p>
+                  ) : prompts.length ? (
+                    <div className="admin-users-table-wrap">
+                      <table className="admin-users-table">
+                        <thead><tr><th>Prompt</th><th>Owner</th><th>Review</th><th>Visibility</th><th>Updated</th><th>Actions</th></tr></thead>
+                        <tbody>
+                          {prompts.map((promptRow) => (
+                            <tr key={promptRow.id}>
+                              <td>
+                                <button className="admin-user-link" type="button" onClick={() => setSelectedPrompt(promptRow)}>
+                                  <strong>{promptRow.title}</strong><span>{promptRow.category} · {(promptRow.tags || []).join(', ') || 'No tags'}</span>
+                                </button>
+                              </td>
+                              <td>
+                                <span className="admin-prompt-owner">{promptRow.owner?.name || 'Unknown owner'}</span>
+                                <span className="admin-prompt-owner-email">{promptRow.owner?.email || ''}</span>
+                              </td>
+                              <td><span className={`admin-review-status ${promptRow.moderationStatus}`}>{promptRow.moderationStatus}</span></td>
+                              <td>{promptRow.archived ? 'Archived' : promptRow.isPublic ? 'Shared' : 'Private'}{promptRow.featured ? ' · Featured' : ''}</td>
+                              <td>{promptRow.updatedAt ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(promptRow.updatedAt)) : '—'}</td>
+                              <td>
+                                <div className="admin-user-actions admin-prompt-actions">
+                                  <button type="button" onClick={() => setSelectedPrompt(promptRow)}>Review</button>
+                                  {promptRow.isPublic && promptRow.moderationStatus !== 'approved' && (
+                                    <button type="button" onClick={() => moderateSelectedPrompt(promptRow, 'approved')}>Approve</button>
+                                  )}
+                                  <button type="button" className="danger" onClick={() => deleteSelectedPrompt(promptRow)}>Delete</button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="admin-empty-state">No prompts match these filters.</p>
+                  )}
+                  <footer className="admin-pagination">
+                    <span>{promptPagination.total} prompts · Page {promptPagination.pages ? promptPagination.page : 0} of {promptPagination.pages}</span>
+                    <div>
+                      <button type="button" onClick={() => setPromptPage((page) => Math.max(1, page - 1))} disabled={promptPage <= 1 || promptsLoading}>Previous</button>
+                      <button type="button" onClick={() => setPromptPage((page) => Math.min(promptPagination.pages, page + 1))} disabled={promptPage >= promptPagination.pages || promptsLoading}>Next</button>
+                    </div>
+                  </footer>
+                  {selectedPrompt && (
+                    <PromptDetailsPanel
+                      prompt={selectedPrompt}
+                      onChange={setSelectedPrompt}
+                      onClose={() => setSelectedPrompt(null)}
+                      onSave={savePromptEdits}
+                      onModerate={moderateSelectedPrompt}
+                      onFlag={(flag, value) => runPromptAction(selectedPrompt, `/flags/${flag}`, 'PATCH', { value }, 'Prompt status updated.')}
+                      onDelete={deleteSelectedPrompt}
                     />
                   )}
                 </section>
@@ -645,6 +904,51 @@ function UserDetailsPanel({ user, loading, onClose }) {
           </section>
         </div>
       )}
+    </section>
+  )
+}
+
+function PromptDetailsPanel({ prompt, onChange, onClose, onSave, onModerate, onFlag, onDelete }) {
+  const update = (field, value) => onChange((current) => ({ ...current, [field]: value }))
+  return (
+    <section className="admin-user-details admin-prompt-details" aria-labelledby="admin-prompt-details-title">
+      <header>
+        <div>
+          <span className="admin-kicker">PROMPT REVIEW · {prompt.moderationStatus}</span>
+          <h2 id="admin-prompt-details-title">{prompt.title}</h2>
+          <p>{prompt.owner?.name || 'Unknown owner'} · {prompt.owner?.email || ''}</p>
+        </div>
+        <button className="admin-secondary-button" type="button" onClick={onClose}>Close</button>
+      </header>
+      <div className="admin-prompt-edit-grid">
+        <label>Title<input value={prompt.title} maxLength={120} onChange={(event) => update('title', event.target.value)} /></label>
+        <label>Category<input value={prompt.category} maxLength={80} onChange={(event) => update('category', event.target.value)} /></label>
+        <label className="wide">Description<textarea value={prompt.description || ''} maxLength={500} rows={2} onChange={(event) => update('description', event.target.value)} /></label>
+        <label className="wide">Tags<input value={Array.isArray(prompt.tags) ? prompt.tags.join(', ') : prompt.tags} onChange={(event) => update('tags', event.target.value)} /></label>
+        <label className="wide">Prompt content<textarea value={prompt.content} maxLength={20000} rows={10} onChange={(event) => update('content', event.target.value)} /></label>
+      </div>
+      {prompt.moderationReason && <p className="admin-rejection-note"><strong>Rejection reason:</strong> {prompt.moderationReason}</p>}
+      <div className="admin-prompt-controls">
+        <button className="admin-primary-button" type="button" onClick={onSave}>Save edits</button>
+        {prompt.isPublic && prompt.moderationStatus !== 'approved' && (
+          <button className="admin-secondary-button" type="button" onClick={() => onModerate(prompt, 'approved')}>Approve sharing</button>
+        )}
+        {prompt.isPublic && (
+          <button className="admin-secondary-button" type="button" onClick={() => onModerate(prompt, 'rejected')}>Reject sharing</button>
+        )}
+        <button className="admin-secondary-button" type="button" onClick={() => onFlag('archived', !prompt.archived)}>
+          {prompt.archived ? 'Restore prompt' : 'Archive prompt'}
+        </button>
+        <button className="admin-secondary-button" type="button" onClick={() => onFlag('featured', !prompt.featured)}>
+          {prompt.featured ? 'Unfeature' : 'Feature'}
+        </button>
+        <button className="admin-secondary-button danger" type="button" onClick={() => onDelete(prompt)}>Delete</button>
+      </div>
+      <div className="admin-prompt-meta">
+        <span>Visibility <strong>{prompt.isPublic ? 'Shared' : 'Private'}</strong></span>
+        <span>Versions <strong>{prompt.versionCount || 0}</strong></span>
+        <span>Updated <strong>{prompt.updatedAt ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(prompt.updatedAt)) : '—'}</strong></span>
+      </div>
     </section>
   )
 }

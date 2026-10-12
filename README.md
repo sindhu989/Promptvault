@@ -29,6 +29,7 @@ Phase 15 — account-level light and dark themes: complete.
 Phase 16 — secure admin access foundation: complete.
 Phase 17 — admin platform dashboard: complete.
 Phase 18 — admin user management: complete.
+Phase 19 — admin prompt management and public-content moderation: complete.
 
 The frontend supports creating, searching, filtering, favoriting, copying,
 editing, and deleting prompts. The UI is connected to the real API and includes
@@ -72,6 +73,15 @@ account status changes, role changes, and permanent deletion. Deactivated or
 suspended accounts cannot use authenticated APIs; status changes invalidate
 their sessions. The final admin account cannot be demoted or deleted, and admins
 cannot disable or delete their own account.
+The admin Prompts area supports paginated content search, moderation and
+archive/featured filters, prompt review and editing, moderation of shared
+prompts, archive/restore, feature/unfeature, and confirmed permanent deletion.
+Administrator edits create a new prompt version; edits to shared content return
+it to pending review. Public prompt and collection links only expose approved
+shared prompts. Newly shared prompts require admin approval before they appear
+publicly, while existing links with no moderation state remain available.
+Every admin prompt action is recorded in the owner's activity history. Prompt
+management responses omit saved test outputs and private version snapshots.
 Password recovery uses one-time tokens stored as hashes and expires after one
 hour. Reset request and submission routes are rate-limited. Recovery email is
 sent through Resend only after the sender domain is verified and the service is
@@ -108,7 +118,7 @@ The authenticated `PUT /api/auth/preferences` endpoint accepts
 Admin sign-in is available at `/admin` and uses `POST /api/admin/auth/login`.
 The protected `GET /api/admin/auth/me` and `POST /api/admin/auth/logout`
 endpoints verify and end admin sessions. Admin account bootstrap is described
-below; prompt moderation and management tools are separate follow-on work.
+below.
 The admin-only `GET /api/admin/dashboard` endpoint provides current platform
 counts and the latest 12 activity records. Dashboard statistics refresh
 automatically once per minute.
@@ -118,6 +128,12 @@ sanitized profile with prompts and recent activity, `PATCH /:id/status` and
 `PATCH /:id/role` manage accounts, `POST /:id/reset-access` invalidates
 sessions, and `DELETE /:id` transactionally removes an account and its owned
 data.
+Admin prompt-management endpoints are rooted at
+`/api/admin/dashboard/prompts`: `GET` lists filtered prompts, `GET /:id` returns
+prompt details, `PATCH /:id` edits prompt content and appends a version,
+`PATCH /:id/moderation` approves or rejects public sharing,
+`PATCH /:id/flags/:flag` archives/restores or features/unfeatures, and
+`DELETE /:id` permanently deletes the prompt and removes it from collections.
 
 ## Run the frontend
 

@@ -185,10 +185,20 @@ async function updatePrompt(req, res) {
   if (body.isPublic !== undefined && Boolean(body.isPublic) !== Boolean(prompt.isPublic)) {
     prompt.isPublic = Boolean(body.isPublic)
     prompt.shareId = prompt.isPublic ? crypto.randomUUID() : undefined
+    prompt.moderationStatus = prompt.isPublic ? 'pending' : 'approved'
+    prompt.moderationReason = ''
+    prompt.moderatedBy = ''
+    prompt.moderatedAt = null
   }
 
   if (contentChanged) {
     appendVersion(prompt, req.user.id, body.changeNotes)
+    if (prompt.isPublic) {
+      prompt.moderationStatus = 'pending'
+      prompt.moderationReason = ''
+      prompt.moderatedBy = ''
+      prompt.moderatedAt = null
+    }
   }
 
   prompt.updatedAt = new Date()
@@ -229,12 +239,14 @@ async function getPublicPrompt(req, res) {
         shareId: req.params.shareId,
         isPublic: true,
         archived: { $ne: true },
+        $or: [{ moderationStatus: 'approved' }, { moderationStatus: { $exists: false } }],
       })
     : prompts.find(
         (item) =>
           item.shareId === req.params.shareId &&
           item.isPublic &&
-          !item.archived,
+          !item.archived &&
+          (!item.moderationStatus || item.moderationStatus === 'approved'),
       )
 
   if (!prompt) {
@@ -263,6 +275,10 @@ async function setPromptVisibility(req, res) {
   if (visibilityChanged) {
     prompt.isPublic = isPublic
     prompt.shareId = isPublic ? crypto.randomUUID() : undefined
+    prompt.moderationStatus = isPublic ? 'pending' : 'approved'
+    prompt.moderationReason = ''
+    prompt.moderatedBy = ''
+    prompt.moderatedAt = null
   }
   prompt.updatedAt = new Date()
 

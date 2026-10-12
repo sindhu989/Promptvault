@@ -252,12 +252,14 @@ async function getPublicCollection(req, res) {
         },
         isPublic: true,
         archived: { $ne: true },
+        $or: [{ moderationStatus: 'approved' }, { moderationStatus: { $exists: false } }],
       })
     : prompts.filter(
         (prompt) =>
           collection.promptIds.includes(prompt.id) &&
           prompt.isPublic &&
-          !prompt.archived,
+          !prompt.archived &&
+          (!prompt.moderationStatus || prompt.moderationStatus === 'approved'),
       )
 
   return res.json({

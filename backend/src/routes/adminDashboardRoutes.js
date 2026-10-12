@@ -8,6 +8,14 @@ const {
   resetUserAccess,
   deleteUser,
 } = require('../controllers/adminUsersController')
+const {
+  listPrompts,
+  getPromptDetails,
+  updatePrompt,
+  moderatePrompt,
+  updatePromptFlag,
+  deletePrompt,
+} = require('../controllers/adminPromptsController')
 const { protectAdmin } = require('../middleware/adminAuth')
 
 const router = express.Router()
@@ -19,5 +27,11 @@ router.patch('/users/:id/status', protectAdmin, updateUserStatus)
 router.patch('/users/:id/role', protectAdmin, updateUserRole)
 router.post('/users/:id/reset-access', protectAdmin, resetUserAccess)
 router.delete('/users/:id', protectAdmin, deleteUser)
+router.get('/prompts', protectAdmin, listPrompts)
+router.get('/prompts/:id', protectAdmin, getPromptDetails)
+router.patch('/prompts/:id', protectAdmin, updatePrompt)
+router.patch('/prompts/:id/moderation', protectAdmin, moderatePrompt)
+router.patch('/prompts/:id/flags/:flag', protectAdmin, updatePromptFlag)
+router.delete('/prompts/:id', protectAdmin, deletePrompt)
 
 module.exports = router
