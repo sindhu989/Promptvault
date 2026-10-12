@@ -681,6 +681,33 @@
   resize: vertical;
 }
 
+.admin-collection-visibility select {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid #dedce7;
+  border-radius: 8px;
+  color: #3c394d;
+  background: #fff;
+  font: inherit;
+  font-weight: 400;
+}
+
+.admin-collection-prompts h3 {
+  margin: 0 0 10px;
+  color: #3c394d;
+  font-family: Manrope, sans-serif;
+  font-size: 14px;
+}
+
+.admin-collection-prompts .admin-detail-list {
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 .admin-prompt-controls {
   display: flex;
   flex-wrap: wrap;

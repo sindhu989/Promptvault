@@ -263,3 +263,117 @@ test('admin prompt management is protected and hides unapproved public prompts',
     activities.splice(0, activities.length, ...activitySnapshot)
   }
 })
+
+test('admin collection management is protected, sanitized, and leaves prompts on deletion', async () => {
+  const owner = {
+    id: 'security-collection-owner',
+    name: 'Collection Owner',
+    email: 'collection-owner@example.test',
+    role: 'user',
+  }
+  const admin = {
+    id: 'security-collection-admin',
+    name: 'Collection Admin',
+    email: 'collection-admin@example.test',
+    role: 'admin',
+    authVersion: 0,
+  }
+  const prompt = {
+    id: 'security-collection-prompt',
+    userId: owner.id,
+    title: 'Collection member prompt',
+    content: 'Private prompt body',
+    category: 'Testing',
+    isPublic: false,
+    archived: false,
+    updatedAt: new Date().toISOString(),
+  }
+  const collection = {
+    id: 'security-managed-collection',
+    userId: owner.id,
+    name: 'Managed [collection]',
+    description: 'A collection to manage',
+    promptIds: [prompt.id],
+    isPublic: true,
+    shareId: 'security-managed-collection-share',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }
+  const sessionId = 'security-collection-admin-session'
+  const activitySnapshot = [...activities]
+  const originalFsMethods = {
+    mkdirSync: fs.mkdirSync,
+    writeFileSync: fs.writeFileSync,
+    renameSync: fs.renameSync,
+  }
+  const adminSession = {
+    tokenId: sessionId,
+    userId: admin.id,
+    revokedAt: null,
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  }
+  users.push(owner, admin)
+  prompts.push(prompt)
+  collections.push(collection)
+  adminSessions.push(adminSession)
+  fs.mkdirSync = () => {}
+  fs.writeFileSync = () => {}
+  fs.renameSync = () => {}
+
+  try {
+    const unauthorized = await fetch(`${baseUrl}/api/admin/dashboard/collections`)
+    assert.equal(unauthorized.status, 401)
+    const cookie = `${adminCookieName}=${signAdminToken(admin.id, sessionId, 0)}`
+    const listResponse = await fetch(
+      `${baseUrl}/api/admin/dashboard/collections?visibility=public&search=%5Bcollection%5D`,
+      { headers: { Cookie: cookie } },
+    )
+    assert.equal(listResponse.status, 200)
+    const listBody = await listResponse.json()
+    assert.deepEqual(listBody.collections.map((item) => item.id), [collection.id])
+    assert.equal(listBody.collections[0].shareId, undefined)
+
+    const detailResponse = await fetch(
+      `${baseUrl}/api/admin/dashboard/collections/${collection.id}`,
+      { headers: { Cookie: cookie } },
+    )
+    const detailBody = await detailResponse.json()
+    assert.equal(detailResponse.status, 200)
+    assert.equal(detailBody.prompts[0].content, undefined)
+    assert.equal(detailBody.prompts[0].title, prompt.title)
+
+    const updatedResponse = await fetch(`${baseUrl}/api/admin/dashboard/collections/${collection.id}`, {
+      method: 'PATCH',
+      headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Reviewed collection', isPublic: false }),
+    })
+    assert.equal(updatedResponse.status, 200)
+    assert.equal((await updatedResponse.json()).collection.isPublic, false)
+    assert.equal(collection.shareId, undefined)
+    assert.equal((await fetch(`${baseUrl}/api/public/collections/security-managed-collection-share`)).status, 404)
+
+    const deleteResponse = await fetch(`${baseUrl}/api/admin/dashboard/collections/${collection.id}`, {
+      method: 'DELETE',
+      headers: { Cookie: cookie },
+    })
+    assert.equal(deleteResponse.status, 200)
+    assert.equal(collections.includes(collection), false)
+    assert.equal(prompts.includes(prompt), true)
+  } finally {
+    fs.mkdirSync = originalFsMethods.mkdirSync
+    fs.writeFileSync = originalFsMethods.writeFileSync
+    fs.renameSync = originalFsMethods.renameSync
+    for (const [list, items] of [
+      [users, [owner, admin]],
+      [prompts, [prompt]],
+      [collections, [collection]],
+      [adminSessions, [adminSession]],
+    ]) {
+      for (const item of items) {
+        const index = list.indexOf(item)
+        if (index >= 0) list.splice(index, 1)
+      }
+    }
+    activities.splice(0, activities.length, ...activitySnapshot)
+  }
+})

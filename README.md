@@ -30,6 +30,7 @@ Phase 16 — secure admin access foundation: complete.
 Phase 17 — admin platform dashboard: complete.
 Phase 18 — admin user management: complete.
 Phase 19 — admin prompt management and public-content moderation: complete.
+Phase 20 — admin collection management: complete.
 
 The frontend supports creating, searching, filtering, favoriting, copying,
 editing, and deleting prompts. The UI is connected to the real API and includes
@@ -82,6 +83,12 @@ shared prompts. Newly shared prompts require admin approval before they appear
 publicly, while existing links with no moderation state remain available.
 Every admin prompt action is recorded in the owner's activity history. Prompt
 management responses omit saved test outputs and private version snapshots.
+The admin Collections area supports paginated search and visibility filters,
+sanitized collection and included-prompt review, editing names and descriptions,
+changing sharing visibility, and confirmed permanent deletion. Changing a
+collection from public to private invalidates its existing share link.
+Deleting a collection never deletes its prompts; administrator actions are
+recorded in the collection owner's activity history.
 Password recovery uses one-time tokens stored as hashes and expires after one
 hour. Reset request and submission routes are rate-limited. Recovery email is
 sent through Resend only after the sender domain is verified and the service is
@@ -134,6 +141,11 @@ prompt details, `PATCH /:id` edits prompt content and appends a version,
 `PATCH /:id/moderation` approves or rejects public sharing,
 `PATCH /:id/flags/:flag` archives/restores or features/unfeatures, and
 `DELETE /:id` permanently deletes the prompt and removes it from collections.
+Admin collection-management endpoints are rooted at
+`/api/admin/dashboard/collections`: `GET` lists filtered collections,
+`GET /:id` returns collection metadata and sanitized prompt summaries,
+`PATCH /:id` edits the collection and sharing visibility, and `DELETE /:id`
+deletes the collection while preserving its prompts.
 
 ## Run the frontend
 

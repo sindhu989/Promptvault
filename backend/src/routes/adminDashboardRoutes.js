@@ -16,6 +16,12 @@ const {
   updatePromptFlag,
   deletePrompt,
 } = require('../controllers/adminPromptsController')
+const {
+  listCollections,
+  getCollectionDetails,
+  updateCollection,
+  deleteCollection,
+} = require('../controllers/adminCollectionsController')
 const { protectAdmin } = require('../middleware/adminAuth')
 
 const router = express.Router()
@@ -33,5 +39,9 @@ router.patch('/prompts/:id', protectAdmin, updatePrompt)
 router.patch('/prompts/:id/moderation', protectAdmin, moderatePrompt)
 router.patch('/prompts/:id/flags/:flag', protectAdmin, updatePromptFlag)
 router.delete('/prompts/:id', protectAdmin, deletePrompt)
+router.get('/collections', protectAdmin, listCollections)
+router.get('/collections/:id', protectAdmin, getCollectionDetails)
+router.patch('/collections/:id', protectAdmin, updateCollection)
+router.delete('/collections/:id', protectAdmin, deleteCollection)
 
 module.exports = router

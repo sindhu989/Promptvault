@@ -77,6 +77,17 @@ function AdminApp() {
   const [promptRefreshKey, setPromptRefreshKey] = useState(0)
   const [selectedPrompt, setSelectedPrompt] = useState(null)
   const selectedPromptId = selectedPrompt?.id
+  const [collections, setCollections] = useState([])
+  const [collectionSearch, setCollectionSearch] = useState('')
+  const [collectionVisibilityFilter, setCollectionVisibilityFilter] = useState('')
+  const [collectionPage, setCollectionPage] = useState(1)
+  const [collectionPagination, setCollectionPagination] = useState({ page: 1, pages: 0, total: 0 })
+  const [collectionsLoading, setCollectionsLoading] = useState(false)
+  const [collectionsError, setCollectionsError] = useState('')
+  const [collectionsMessage, setCollectionsMessage] = useState('')
+  const [collectionRefreshKey, setCollectionRefreshKey] = useState(0)
+  const [selectedCollection, setSelectedCollection] = useState(null)
+  const selectedCollectionId = selectedCollection?.id
 
   useEffect(() => {
     try {
@@ -315,6 +326,80 @@ function AdminApp() {
     }
   }, [hasSession, selectedPromptId, promptRefreshKey])
 
+  useEffect(() => {
+    if (!hasSession || !user || activeSection !== 'collections') return undefined
+    let active = true
+    const params = new URLSearchParams({
+      page: String(collectionPage),
+      search: collectionSearch,
+      visibility: collectionVisibilityFilter,
+    })
+
+    async function loadCollections() {
+      setCollectionsLoading(true)
+      setCollectionsError('')
+      try {
+        const response = await fetch(`${API_URL}/api/admin/dashboard/collections?${params}`, {
+          credentials: 'include',
+        })
+        const data = await response.json()
+        if (response.status === 401) {
+          if (active) {
+            setHasSession(false)
+            setUser(null)
+            setMessage('Your admin session expired. Sign in again.')
+          }
+          return
+        }
+        if (!response.ok) throw new Error(data.message || 'Could not load collections.')
+        if (active) {
+          setCollections(data.collections || [])
+          setCollectionPagination(data.pagination || { page: 1, pages: 0, total: 0 })
+        }
+      } catch (loadError) {
+        if (active) setCollectionsError(loadError.message || 'Could not load collections.')
+      } finally {
+        if (active) setCollectionsLoading(false)
+      }
+    }
+
+    const debounce = window.setTimeout(loadCollections, 200)
+    return () => {
+      active = false
+      window.clearTimeout(debounce)
+    }
+  }, [activeSection, hasSession, user, collectionPage, collectionSearch, collectionVisibilityFilter, collectionRefreshKey])
+
+  useEffect(() => {
+    if (!selectedCollectionId || !hasSession) return undefined
+    let active = true
+    async function loadCollectionDetails() {
+      try {
+        const response = await fetch(
+          `${API_URL}/api/admin/dashboard/collections/${encodeURIComponent(selectedCollectionId)}`,
+          { credentials: 'include' },
+        )
+        const data = await response.json()
+        if (response.status === 401) {
+          if (active) {
+            setHasSession(false)
+            setUser(null)
+            setMessage('Your admin session expired. Sign in again.')
+          }
+          return
+        }
+        if (!response.ok) throw new Error(data.message || 'Could not load collection details.')
+        if (active) setSelectedCollection({ ...data.collection, prompts: data.prompts || [] })
+      } catch (detailError) {
+        if (active) setCollectionsError(detailError.message || 'Could not load collection details.')
+      }
+    }
+    loadCollectionDetails()
+    return () => {
+      active = false
+    }
+  }, [hasSession, selectedCollectionId, collectionRefreshKey])
+
   async function submitLogin(event) {
     event.preventDefault()
     setPending(true)
@@ -487,6 +572,57 @@ function AdminApp() {
     runPromptAction(promptRow, '', 'DELETE', null, 'Prompt deleted.')
   }
 
+  async function runCollectionAction(collectionRow, method, body) {
+    setCollectionsError('')
+    setCollectionsMessage('')
+    try {
+      const response = await fetch(
+        `${API_URL}/api/admin/dashboard/collections/${encodeURIComponent(collectionRow.id)}`,
+        {
+          method,
+          credentials: 'include',
+          headers: body ? { 'Content-Type': 'application/json' } : {},
+          ...(body ? { body: JSON.stringify(body) } : {}),
+        },
+      )
+      const data = await response.json()
+      if (response.status === 401) {
+        setHasSession(false)
+        setUser(null)
+        setMessage('Your admin session expired. Sign in again.')
+        return false
+      }
+      if (!response.ok) throw new Error(data.message || 'Could not complete the collection action.')
+      setCollectionsMessage(data.message || 'Collection updated.')
+      setCollectionRefreshKey((current) => current + 1)
+      if (data.collection && selectedCollection?.id === collectionRow.id) {
+        setSelectedCollection((current) => ({ ...current, ...data.collection }))
+      }
+      if (method === 'DELETE') setSelectedCollection(null)
+      return true
+    } catch (actionError) {
+      setCollectionsError(actionError.message || 'Could not complete the collection action.')
+      return false
+    }
+  }
+
+  async function saveCollectionEdits() {
+    if (!selectedCollection) return
+    await runCollectionAction(selectedCollection, 'PATCH', {
+      name: selectedCollection.name,
+      description: selectedCollection.description,
+      isPublic: selectedCollection.isPublic,
+    })
+  }
+
+  function deleteSelectedCollection(collectionRow) {
+    const confirmation = window.prompt(
+      `This permanently deletes "${collectionRow.name}" but leaves prompts untouched. Type DELETE to confirm.`,
+    )
+    if (confirmation !== 'DELETE') return
+    runCollectionAction(collectionRow, 'DELETE')
+  }
+
   return (
     <main className={`admin-page ${user ? 'admin-page-dashboard' : ''}`}>
       <section className={`admin-card ${user ? 'admin-card-dashboard' : ''}`}>
@@ -529,6 +665,13 @@ function AdminApp() {
                 >
                   <span aria-hidden="true">✎</span> Prompts
                 </button>
+                <button
+                  className={`admin-nav-item ${activeSection === 'collections' ? 'active' : ''}`}
+                  type="button"
+                  onClick={() => setActiveSection('collections')}
+                >
+                  <span aria-hidden="true">▤</span> Collections
+                </button>
               </nav>
               <div className="admin-sidebar-footer">
                 <strong>{user.name}</strong>
@@ -542,13 +685,15 @@ function AdminApp() {
               <header className="admin-dashboard-header">
                 <div>
                   <span className="admin-kicker">{activeSection === 'overview' ? 'PLATFORM OVERVIEW' : 'PLATFORM MANAGEMENT'}</span>
-                  <h1>{activeSection === 'overview' ? 'Admin dashboard' : activeSection === 'users' ? 'User management' : 'Prompt management'}</h1>
+                  <h1>{activeSection === 'overview' ? 'Admin dashboard' : activeSection === 'users' ? 'User management' : activeSection === 'prompts' ? 'Prompt management' : 'Collection management'}</h1>
                   <p className="admin-description">
                     {activeSection === 'overview'
                       ? 'Platform health and current usage at a glance.'
                       : activeSection === 'users'
                         ? 'Search accounts, manage access, and review user activity.'
-                        : 'Review shared prompts, manage visibility, and moderate public content.'}
+                        : activeSection === 'prompts'
+                          ? 'Review shared prompts, manage visibility, and moderate public content.'
+                          : 'Review platform collections, update details, and manage public sharing.'}
                   </p>
                 </div>
                 {activeSection === 'overview' && (
@@ -706,7 +851,7 @@ function AdminApp() {
                     />
                   )}
                 </section>
-              ) : (
+              ) : activeSection === 'prompts' ? (
                 <section className="admin-users-panel">
                   <div className="admin-users-toolbar">
                     <label className="admin-search">
@@ -800,6 +945,81 @@ function AdminApp() {
                       onModerate={moderateSelectedPrompt}
                       onFlag={(flag, value) => runPromptAction(selectedPrompt, `/flags/${flag}`, 'PATCH', { value }, 'Prompt status updated.')}
                       onDelete={deleteSelectedPrompt}
+                    />
+                  )}
+                </section>
+              ) : (
+                <section className="admin-users-panel">
+                  <div className="admin-users-toolbar">
+                    <label className="admin-search">
+                      <span className="visually-hidden">Search collections</span>
+                      <input
+                        value={collectionSearch}
+                        onChange={(event) => { setCollectionSearch(event.target.value); setCollectionPage(1) }}
+                        placeholder="Search collection name or description"
+                        maxLength={100}
+                      />
+                    </label>
+                    <label>
+                      <span className="visually-hidden">Filter by visibility</span>
+                      <select value={collectionVisibilityFilter} onChange={(event) => { setCollectionVisibilityFilter(event.target.value); setCollectionPage(1) }}>
+                        <option value="">All visibility</option>
+                        <option value="public">Public</option>
+                        <option value="private">Private</option>
+                      </select>
+                    </label>
+                  </div>
+                  {collectionsError && <div className="admin-error" role="alert">{collectionsError}</div>}
+                  {collectionsMessage && <div className="admin-message" role="status">{collectionsMessage}</div>}
+                  {collectionsLoading ? (
+                    <p className="admin-status" role="status">Loading collections...</p>
+                  ) : collections.length ? (
+                    <div className="admin-users-table-wrap">
+                      <table className="admin-users-table">
+                        <thead><tr><th>Collection</th><th>Owner</th><th>Prompts</th><th>Visibility</th><th>Updated</th><th>Actions</th></tr></thead>
+                        <tbody>
+                          {collections.map((collectionRow) => (
+                            <tr key={collectionRow.id}>
+                              <td>
+                                <button className="admin-user-link" type="button" onClick={() => setSelectedCollection(collectionRow)}>
+                                  <strong>{collectionRow.name}</strong><span>{collectionRow.description || 'No description'}</span>
+                                </button>
+                              </td>
+                              <td>
+                                <span className="admin-prompt-owner">{collectionRow.owner?.name || 'Unknown owner'}</span>
+                                <span className="admin-prompt-owner-email">{collectionRow.owner?.email || ''}</span>
+                              </td>
+                              <td>{collectionRow.promptCount}</td>
+                              <td>{collectionRow.isPublic ? 'Public' : 'Private'}</td>
+                              <td>{collectionRow.updatedAt ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(collectionRow.updatedAt)) : '—'}</td>
+                              <td>
+                                <div className="admin-user-actions">
+                                  <button type="button" onClick={() => setSelectedCollection(collectionRow)}>Review</button>
+                                  <button type="button" className="danger" onClick={() => deleteSelectedCollection(collectionRow)}>Delete</button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="admin-empty-state">No collections match these filters.</p>
+                  )}
+                  <footer className="admin-pagination">
+                    <span>{collectionPagination.total} collections · Page {collectionPagination.pages ? collectionPagination.page : 0} of {collectionPagination.pages}</span>
+                    <div>
+                      <button type="button" onClick={() => setCollectionPage((page) => Math.max(1, page - 1))} disabled={collectionPage <= 1 || collectionsLoading}>Previous</button>
+                      <button type="button" onClick={() => setCollectionPage((page) => Math.min(collectionPagination.pages, page + 1))} disabled={collectionPage >= collectionPagination.pages || collectionsLoading}>Next</button>
+                    </div>
+                  </footer>
+                  {selectedCollection && (
+                    <CollectionDetailsPanel
+                      collection={selectedCollection}
+                      onChange={setSelectedCollection}
+                      onClose={() => setSelectedCollection(null)}
+                      onSave={saveCollectionEdits}
+                      onDelete={deleteSelectedCollection}
                     />
                   )}
                 </section>
@@ -948,6 +1168,54 @@ function PromptDetailsPanel({ prompt, onChange, onClose, onSave, onModerate, onF
         <span>Visibility <strong>{prompt.isPublic ? 'Shared' : 'Private'}</strong></span>
         <span>Versions <strong>{prompt.versionCount || 0}</strong></span>
         <span>Updated <strong>{prompt.updatedAt ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(prompt.updatedAt)) : '—'}</strong></span>
+      </div>
+    </section>
+  )
+}
+
+function CollectionDetailsPanel({ collection, onChange, onClose, onSave, onDelete }) {
+  const update = (field, value) => onChange((current) => ({ ...current, [field]: value }))
+  return (
+    <section className="admin-user-details admin-collection-details" aria-labelledby="admin-collection-details-title">
+      <header>
+        <div>
+          <span className="admin-kicker">COLLECTION DETAILS</span>
+          <h2 id="admin-collection-details-title">{collection.name}</h2>
+          <p>{collection.owner?.name || 'Unknown owner'} · {collection.owner?.email || ''}</p>
+        </div>
+        <button className="admin-secondary-button" type="button" onClick={onClose}>Close</button>
+      </header>
+      <div className="admin-prompt-edit-grid">
+        <label>Name<input value={collection.name} maxLength={80} onChange={(event) => update('name', event.target.value)} /></label>
+        <label className="admin-collection-visibility">
+          Visibility
+          <select value={collection.isPublic ? 'public' : 'private'} onChange={(event) => update('isPublic', event.target.value === 'public')}>
+            <option value="private">Private</option>
+            <option value="public">Public</option>
+          </select>
+        </label>
+        <label className="wide">Description<textarea value={collection.description || ''} maxLength={240} rows={3} onChange={(event) => update('description', event.target.value)} /></label>
+      </div>
+      <div className="admin-prompt-controls">
+        <button className="admin-primary-button" type="button" onClick={onSave}>Save changes</button>
+        <button className="admin-secondary-button danger" type="button" onClick={() => onDelete(collection)}>Delete collection</button>
+      </div>
+      <div className="admin-collection-prompts">
+        <h3>Included prompts ({collection.promptCount || 0})</h3>
+        {collection.prompts?.length ? (
+          <ul className="admin-detail-list">
+            {collection.prompts.map((prompt) => (
+              <li key={prompt.id}>
+                <strong>{prompt.title}</strong>
+                <span>{prompt.category} · {prompt.isPublic ? 'Shared' : 'Private'}{prompt.archived ? ' · Archived' : ''}</span>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="admin-detail-empty">No prompts in this collection.</p>}
+      </div>
+      <div className="admin-prompt-meta">
+        <span>Visibility <strong>{collection.isPublic ? 'Public' : 'Private'}</strong></span>
+        <span>Updated <strong>{collection.updatedAt ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(collection.updatedAt)) : '—'}</strong></span>
       </div>
     </section>
   )
