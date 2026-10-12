@@ -31,6 +31,7 @@ Phase 17 — admin platform dashboard: complete.
 Phase 18 — admin user management: complete.
 Phase 19 — admin prompt management and public-content moderation: complete.
 Phase 20 — admin collection management: complete.
+Phase 21 — admin platform activity history: complete.
 
 The frontend supports creating, searching, filtering, favoriting, copying,
 editing, and deleting prompts. The UI is connected to the real API and includes
@@ -89,6 +90,10 @@ changing sharing visibility, and confirmed permanent deletion. Changing a
 collection from public to private invalidates its existing share link.
 Deleting a collection never deletes its prompts; administrator actions are
 recorded in the collection owner's activity history.
+The admin Activity area provides a protected, paginated platform activity view with search
+across event metadata and account name/email, entity and action filters, and an
+inclusive date range. Responses include only account name/email and event
+metadata; passwords and internal entity/user IDs are excluded.
 Password recovery uses one-time tokens stored as hashes and expires after one
 hour. Reset request and submission routes are rate-limited. Recovery email is
 sent through Resend only after the sender domain is verified and the service is
@@ -146,6 +151,9 @@ Admin collection-management endpoints are rooted at
 `GET /:id` returns collection metadata and sanitized prompt summaries,
 `PATCH /:id` edits the collection and sharing visibility, and `DELETE /:id`
 deletes the collection while preserving its prompts.
+The admin-only `GET /api/admin/dashboard/activity` endpoint lists platform
+activity with optional `page`, `search`, `entityType`, `action`, `from`, and
+`to` filters. Date filters use `YYYY-MM-DD`; the end date is inclusive.
 
 ## Run the frontend
 

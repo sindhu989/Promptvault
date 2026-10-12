@@ -28,6 +28,16 @@ const activityLabels = {
   'prompt.restored': 'Restored prompt',
   'prompt.deleted': 'Deleted prompt',
   'prompt.test_saved': 'Saved prompt test',
+  'prompt.admin_edited': 'Admin edited prompt',
+  'prompt.admin_approved': 'Approved shared prompt',
+  'prompt.admin_rejected': 'Rejected shared prompt',
+  'prompt.admin_deleted': 'Admin deleted prompt',
+  'collection.admin_updated': 'Admin updated collection',
+  'collection.admin_deleted': 'Admin deleted collection',
+  'admin.user_status_changed': 'Changed account status',
+  'admin.user_role_changed': 'Changed account role',
+  'admin.user_access_reset': 'Reset account access',
+  'admin.user_deleted': 'Deleted account',
   'collection.created': 'Created collection',
   'collection.updated': 'Updated collection',
   'collection.deleted': 'Deleted collection',
@@ -88,6 +98,16 @@ function AdminApp() {
   const [collectionRefreshKey, setCollectionRefreshKey] = useState(0)
   const [selectedCollection, setSelectedCollection] = useState(null)
   const selectedCollectionId = selectedCollection?.id
+  const [adminActivity, setAdminActivity] = useState([])
+  const [activitySearch, setActivitySearch] = useState('')
+  const [activityEntityFilter, setActivityEntityFilter] = useState('')
+  const [activityActionFilter, setActivityActionFilter] = useState('')
+  const [activityFrom, setActivityFrom] = useState('')
+  const [activityTo, setActivityTo] = useState('')
+  const [activityPage, setActivityPage] = useState(1)
+  const [activityPagination, setActivityPagination] = useState({ page: 1, pages: 0, total: 0 })
+  const [adminActivityLoading, setAdminActivityLoading] = useState(false)
+  const [adminActivityError, setAdminActivityError] = useState('')
 
   useEffect(() => {
     try {
@@ -400,6 +420,53 @@ function AdminApp() {
     }
   }, [hasSession, selectedCollectionId, collectionRefreshKey])
 
+  useEffect(() => {
+    if (!hasSession || !user || activeSection !== 'activity') return undefined
+    let active = true
+    const params = new URLSearchParams({
+      page: String(activityPage),
+      search: activitySearch,
+      entityType: activityEntityFilter,
+      action: activityActionFilter,
+      from: activityFrom,
+      to: activityTo,
+    })
+
+    async function loadAdminActivity() {
+      setAdminActivityLoading(true)
+      setAdminActivityError('')
+      try {
+        const response = await fetch(`${API_URL}/api/admin/dashboard/activity?${params}`, {
+          credentials: 'include',
+        })
+        const data = await response.json()
+        if (response.status === 401) {
+          if (active) {
+            setHasSession(false)
+            setUser(null)
+            setMessage('Your admin session expired. Sign in again.')
+          }
+          return
+        }
+        if (!response.ok) throw new Error(data.message || 'Could not load platform activity.')
+        if (active) {
+          setAdminActivity(data.activity || [])
+          setActivityPagination(data.pagination || { page: 1, pages: 0, total: 0 })
+        }
+      } catch (loadError) {
+        if (active) setAdminActivityError(loadError.message || 'Could not load platform activity.')
+      } finally {
+        if (active) setAdminActivityLoading(false)
+      }
+    }
+
+    const debounce = window.setTimeout(loadAdminActivity, 200)
+    return () => {
+      active = false
+      window.clearTimeout(debounce)
+    }
+  }, [activeSection, hasSession, user, activityPage, activitySearch, activityEntityFilter, activityActionFilter, activityFrom, activityTo])
+
   async function submitLogin(event) {
     event.preventDefault()
     setPending(true)
@@ -439,6 +506,7 @@ function AdminApp() {
       setHasSession(false)
       setUser(null)
       setDashboard(null)
+      setAdminActivity([])
       setMessage('Admin session ended.')
     } catch (logoutError) {
       setError(logoutError.message || 'Could not end the admin session.')
@@ -672,6 +740,13 @@ function AdminApp() {
                 >
                   <span aria-hidden="true">▤</span> Collections
                 </button>
+                <button
+                  className={`admin-nav-item ${activeSection === 'activity' ? 'active' : ''}`}
+                  type="button"
+                  onClick={() => setActiveSection('activity')}
+                >
+                  <span aria-hidden="true">◷</span> Activity
+                </button>
               </nav>
               <div className="admin-sidebar-footer">
                 <strong>{user.name}</strong>
@@ -685,7 +760,7 @@ function AdminApp() {
               <header className="admin-dashboard-header">
                 <div>
                   <span className="admin-kicker">{activeSection === 'overview' ? 'PLATFORM OVERVIEW' : 'PLATFORM MANAGEMENT'}</span>
-                  <h1>{activeSection === 'overview' ? 'Admin dashboard' : activeSection === 'users' ? 'User management' : activeSection === 'prompts' ? 'Prompt management' : 'Collection management'}</h1>
+                  <h1>{activeSection === 'overview' ? 'Admin dashboard' : activeSection === 'users' ? 'User management' : activeSection === 'prompts' ? 'Prompt management' : activeSection === 'collections' ? 'Collection management' : 'Platform activity'}</h1>
                   <p className="admin-description">
                     {activeSection === 'overview'
                       ? 'Platform health and current usage at a glance.'
@@ -693,7 +768,9 @@ function AdminApp() {
                         ? 'Search accounts, manage access, and review user activity.'
                         : activeSection === 'prompts'
                           ? 'Review shared prompts, manage visibility, and moderate public content.'
-                          : 'Review platform collections, update details, and manage public sharing.'}
+                          : activeSection === 'collections'
+                            ? 'Review platform collections, update details, and manage public sharing.'
+                            : 'Search and review recorded activity across platform accounts.'}
                   </p>
                 </div>
                 {activeSection === 'overview' && (
@@ -724,9 +801,12 @@ function AdminApp() {
                         <h2>Recent activity</h2>
                         <p>Latest recorded actions across user accounts</p>
                       </div>
-                      {dashboard?.generatedAt && (
-                        <span>Updated {new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(dashboard.generatedAt))}</span>
-                      )}
+                      <div className="admin-activity-heading-actions">
+                        {dashboard?.generatedAt && (
+                          <span>Updated {new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(dashboard.generatedAt))}</span>
+                        )}
+                        <button className="admin-secondary-button" type="button" onClick={() => setActiveSection('activity')}>View activity log</button>
+                      </div>
                     </div>
                     {dashboardLoading && !dashboard ? (
                       <p className="admin-status" role="status">Loading platform statistics...</p>
@@ -948,7 +1028,7 @@ function AdminApp() {
                     />
                   )}
                 </section>
-              ) : (
+              ) : activeSection === 'collections' ? (
                 <section className="admin-users-panel">
                   <div className="admin-users-toolbar">
                     <label className="admin-search">
@@ -1022,6 +1102,81 @@ function AdminApp() {
                       onDelete={deleteSelectedCollection}
                     />
                   )}
+                </section>
+              ) : (
+                <section className="admin-users-panel">
+                  <div className="admin-users-toolbar">
+                    <label className="admin-search">
+                      <span className="visually-hidden">Search activity</span>
+                      <input
+                        value={activitySearch}
+                        onChange={(event) => { setActivitySearch(event.target.value); setActivityPage(1) }}
+                        placeholder="Search action, account, or item"
+                        maxLength={100}
+                      />
+                    </label>
+                    <label>
+                      <span className="visually-hidden">Filter by activity category</span>
+                      <select value={activityEntityFilter} onChange={(event) => { setActivityEntityFilter(event.target.value); setActivityPage(1) }}>
+                        <option value="">All categories</option>
+                        <option value="prompt">Prompts</option>
+                        <option value="collection">Collections</option>
+                        <option value="import">Imports</option>
+                        <option value="auth">Authentication</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span className="visually-hidden">Filter by action</span>
+                      <select value={activityActionFilter} onChange={(event) => { setActivityActionFilter(event.target.value); setActivityPage(1) }}>
+                        <option value="">All actions</option>
+                        {Object.entries(activityLabels).map(([action, label]) => <option key={action} value={action}>{label}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      <span className="visually-hidden">Activity from date</span>
+                      <input type="date" value={activityFrom} onChange={(event) => { setActivityFrom(event.target.value); setActivityPage(1) }} />
+                    </label>
+                    <label>
+                      <span className="visually-hidden">Activity to date</span>
+                      <input type="date" value={activityTo} onChange={(event) => { setActivityTo(event.target.value); setActivityPage(1) }} />
+                    </label>
+                  </div>
+                  {adminActivityError && <div className="admin-error" role="alert">{adminActivityError}</div>}
+                  {adminActivityLoading ? (
+                    <p className="admin-status" role="status">Loading platform activity...</p>
+                  ) : adminActivity.length ? (
+                    <div className="admin-users-table-wrap">
+                      <table className="admin-users-table">
+                        <thead><tr><th>Action</th><th>Related account</th><th>Item</th><th>Details</th><th>Time</th></tr></thead>
+                        <tbody>
+                          {adminActivity.map((entry) => (
+                            <tr key={entry.id}>
+                              <td>{activityLabels[entry.action] || entry.action}</td>
+                              <td>
+                                {entry.user ? (
+                                  <span className="admin-activity-account">
+                                    <strong>{entry.user.name}</strong><small>{entry.user.email}</small>
+                                  </span>
+                                ) : 'Account deleted'}
+                              </td>
+                              <td>{entry.entityTitle || entry.entityType}</td>
+                              <td className="admin-activity-details">{entry.details || '—'}</td>
+                              <td>{entry.createdAt ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(entry.createdAt)) : '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="admin-empty-state">No activity matches these filters.</p>
+                  )}
+                  <footer className="admin-pagination">
+                    <span>{activityPagination.total} events · Page {activityPagination.pages ? activityPagination.page : 0} of {activityPagination.pages}</span>
+                    <div>
+                      <button type="button" onClick={() => setActivityPage((page) => Math.max(1, page - 1))} disabled={activityPage <= 1 || adminActivityLoading}>Previous</button>
+                      <button type="button" onClick={() => setActivityPage((page) => Math.min(activityPagination.pages, page + 1))} disabled={activityPage >= activityPagination.pages || adminActivityLoading}>Next</button>
+                    </div>
+                  </footer>
                 </section>
               )}
             </section>

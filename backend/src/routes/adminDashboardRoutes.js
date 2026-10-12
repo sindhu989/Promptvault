@@ -22,6 +22,7 @@ const {
   updateCollection,
   deleteCollection,
 } = require('../controllers/adminCollectionsController')
+const { listAdminActivity } = require('../controllers/adminActivityController')
 const { protectAdmin } = require('../middleware/adminAuth')
 
 const router = express.Router()
@@ -43,5 +44,6 @@ router.get('/collections', protectAdmin, listCollections)
 router.get('/collections/:id', protectAdmin, getCollectionDetails)
 router.patch('/collections/:id', protectAdmin, updateCollection)
 router.delete('/collections/:id', protectAdmin, deleteCollection)
+router.get('/activity', protectAdmin, listAdminActivity)
 
 module.exports = router

@@ -256,6 +256,12 @@
   align-items: center;
 }
 
+.admin-activity-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .admin-dashboard-header,
 .admin-section-heading {
   justify-content: space-between;
@@ -476,6 +482,26 @@
   color: #514e62;
   font-size: 12px;
   white-space: nowrap;
+}
+
+.admin-activity-account {
+  display: grid;
+  gap: 3px;
+}
+
+.admin-activity-account strong {
+  color: #3c394d;
+  font-size: 12px;
+}
+
+.admin-activity-account small {
+  color: #777487;
+  font-size: 11px;
+}
+
+.admin-activity-details {
+  max-width: 260px;
+  white-space: normal !important;
 }
 
 .admin-users-table tbody tr:last-child td {
@@ -806,6 +832,11 @@
   .admin-section-heading {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .admin-activity-heading-actions {
+    width: 100%;
+    flex-wrap: wrap;
   }
 
   .admin-header-actions {

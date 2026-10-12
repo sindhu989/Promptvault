@@ -377,3 +377,82 @@ test('admin collection management is protected, sanitized, and leaves prompts on
     activities.splice(0, activities.length, ...activitySnapshot)
   }
 })
+
+test('admin activity log is protected, searchable, filterable, and paginated', async () => {
+  const account = {
+    id: 'security-audit-user',
+    name: 'Audit Searchable User',
+    email: 'audit-searchable@example.test',
+    password: 'never-return-this',
+    role: 'user',
+  }
+  const admin = {
+    id: 'security-audit-admin',
+    name: 'Audit Admin',
+    email: 'audit-admin@example.test',
+    role: 'admin',
+    authVersion: 0,
+  }
+  const event = {
+    id: 'security-audit-event',
+    userId: account.id,
+    action: 'prompt.updated',
+    entityType: 'prompt',
+    entityId: 'unneeded-id',
+    entityTitle: 'Audit test prompt',
+    details: 'Updated for audit testing',
+    createdAt: '2026-10-10T12:30:00.000Z',
+  }
+  const sessionId = 'security-audit-admin-session'
+  const adminSession = {
+    tokenId: sessionId,
+    userId: admin.id,
+    revokedAt: null,
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  }
+  users.push(account, admin)
+  activities.push(event)
+  adminSessions.push(adminSession)
+
+  try {
+    const unauthorized = await fetch(`${baseUrl}/api/admin/dashboard/activity`)
+    assert.equal(unauthorized.status, 401)
+
+    const cookie = `${adminCookieName}=${signAdminToken(admin.id, sessionId, 0)}`
+    const response = await fetch(
+      `${baseUrl}/api/admin/dashboard/activity?search=audit-searchable&entityType=prompt&action=prompt.updated&from=2026-10-10&to=2026-10-10`,
+      { headers: { Cookie: cookie } },
+    )
+    assert.equal(response.status, 200)
+    const body = await response.json()
+    assert.equal(body.pagination.total, 1)
+    assert.equal(body.activity[0].id, event.id)
+    assert.equal(body.activity[0].user.name, account.name)
+    assert.equal(body.activity[0].user.password, undefined)
+    assert.equal(body.activity[0].user.id, undefined)
+    assert.equal(body.activity[0].entityId, undefined)
+
+    const invalidDateResponse = await fetch(
+      `${baseUrl}/api/admin/dashboard/activity?from=2026-02-30`,
+      { headers: { Cookie: cookie } },
+    )
+    assert.equal(invalidDateResponse.status, 400)
+
+    const invalidWindowResponse = await fetch(
+      `${baseUrl}/api/admin/dashboard/activity?from=2026-10-11&to=2026-10-10`,
+      { headers: { Cookie: cookie } },
+    )
+    assert.equal(invalidWindowResponse.status, 400)
+  } finally {
+    for (const [list, items] of [
+      [users, [account, admin]],
+      [activities, [event]],
+      [adminSessions, [adminSession]],
+    ]) {
+      for (const item of items) {
+        const index = list.indexOf(item)
+        if (index >= 0) list.splice(index, 1)
+      }
+    }
+  }
+})
