@@ -2,9 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
 const API_URL =
-  import.meta.env.VITE_API_URL ||
-  (import.meta.env.DEV ? 'http://localhost:5000' : '')
-const tokenKey = 'promptvault-token'
+  import.meta.env.VITE_API_URL || ''
+const legacyTokenKey = 'promptvault-token'
 const userKey = 'promptvault-user'
 
 function readStoredValue(key) {
@@ -59,14 +58,9 @@ function promptVariables(content) {
 }
 
 function App() {
-  const [token, setToken] = useState(() => {
-    try {
-      return window.localStorage.getItem(tokenKey) || ''
-    } catch {
-      return ''
-    }
-  })
   const [user, setUser] = useState(() => readStoredValue(userKey))
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [sessionChecked, setSessionChecked] = useState(false)
   const [resetToken, setResetToken] = useState(() =>
     new URLSearchParams(window.location.search).get('resetToken') || '',
   )
@@ -113,23 +107,56 @@ function App() {
   const sharedRoute = window.location.pathname.match(/^\/share\/(prompt|collection)\/([^/]+)$/)
 
   useEffect(() => {
+    try {
+      window.localStorage.removeItem(legacyTokenKey)
+    } catch {}
+
+    if (/^\/share\/(prompt|collection)\/[^/]+$/.test(window.location.pathname)) return undefined
+
+    let active = true
+    async function restoreSession() {
+      try {
+        const response = await fetch(`${API_URL}/api/auth/me`, {
+          credentials: 'include',
+        })
+        const data = await response.json()
+        if (!active) return
+        if (response.status === 401) {
+          window.localStorage.removeItem(userKey)
+          setUser(null)
+          return
+        }
+        if (!response.ok) throw new Error(data.message || 'Could not verify your session.')
+        setUser(data.user)
+        setIsAuthenticated(true)
+        try {
+          window.localStorage.setItem(userKey, JSON.stringify(data.user))
+        } catch {}
+      } catch (sessionError) {
+        if (active) setError(sessionError.message || 'Could not verify your session.')
+      } finally {
+        if (active) setSessionChecked(true)
+      }
+    }
+
+    restoreSession()
+    return () => {
+      active = false
+    }
+  }, [])
+
+  useEffect(() => {
     document.documentElement.dataset.theme = user?.theme === 'dark' ? 'dark' : 'light'
   }, [user?.theme])
 
   useEffect(() => {
-    if (!token) return
-
-    try {
-      window.localStorage.setItem(tokenKey, token)
-    } catch {}
+    if (!isAuthenticated) return
 
     async function loadPrompts() {
       setLoadingPrompts(true)
       try {
         const response = await fetch(`${API_URL}/api/prompts`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+          credentials: 'include',
         })
 
         const data = await response.json()
@@ -143,7 +170,7 @@ function App() {
 
         setPrompts(data.prompts || [])
         const collectionData = await fetch(`${API_URL}/api/collections`, {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: 'include',
         })
         const collectionBody = await collectionData.json()
         if (!collectionData.ok) {
@@ -158,10 +185,10 @@ function App() {
     }
 
     loadPrompts()
-  }, [token])
+  }, [isAuthenticated])
 
   useEffect(() => {
-    if (!token || activeCategory !== 'Activity') return undefined
+    if (!isAuthenticated || activeCategory !== 'Activity') return undefined
     let active = true
 
     async function loadActivity() {
@@ -169,7 +196,7 @@ function App() {
       setError('')
       try {
         const response = await fetch(`${API_URL}/api/activity`, {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: 'include',
         })
         const data = await response.json()
         if (!response.ok) {
@@ -188,7 +215,7 @@ function App() {
     return () => {
       active = false
     }
-  }, [activeCategory, activityRefreshKey, token])
+  }, [activeCategory, activityRefreshKey, isAuthenticated])
 
   const categories = useMemo(
     () => [...new Set(prompts.filter((prompt) => !prompt.archived).map((prompt) => prompt.category))].sort(),
@@ -235,18 +262,19 @@ function App() {
       )
   }, [activeCategory, collectionPromptIds, prompts, query, sortBy])
 
-  function saveTokenAndUser(nextToken, nextUser) {
-    setToken(nextToken)
+  function saveUser(nextUser) {
+    setIsAuthenticated(true)
+    setSessionChecked(true)
     setUser(nextUser)
 
     try {
-      window.localStorage.setItem(tokenKey, nextToken)
       window.localStorage.setItem(userKey, JSON.stringify(nextUser))
     } catch {}
   }
 
   function logout() {
-    setToken('')
+    setIsAuthenticated(false)
+    setSessionChecked(true)
     setUser(null)
     setPrompts([])
     setCollections([])
@@ -256,9 +284,21 @@ function App() {
     setAuthMode('login')
 
     try {
-      window.localStorage.removeItem(tokenKey)
       window.localStorage.removeItem(userKey)
     } catch {}
+  }
+
+  async function endSession() {
+    try {
+      await fetch(`${API_URL}/api/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      })
+    } catch (logoutError) {
+      setError(logoutError.message || 'Could not end the session on the server.')
+    } finally {
+      logout()
+    }
   }
 
   async function handleAuthSubmit(event) {
@@ -271,6 +311,7 @@ function App() {
       if (authMode === 'forgot') {
         const response = await fetch(`${API_URL}/api/auth/forgot-password`, {
           method: 'POST',
+          credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email: authForm.email }),
         })
@@ -286,6 +327,7 @@ function App() {
         }
         const response = await fetch(`${API_URL}/api/auth/reset-password`, {
           method: 'POST',
+          credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token: resetToken, newPassword: authForm.password }),
         })
@@ -315,6 +357,7 @@ function App() {
 
       const response = await fetch(`${API_URL}/api/auth/${endpoint}`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
@@ -326,7 +369,7 @@ function App() {
         throw new Error(data.message || 'Authentication failed.')
       }
 
-      saveTokenAndUser(data.token, data.user)
+      saveUser(data.user)
       setAuthForm({ name: '', email: '', password: '' })
       setAuthMessage('')
       setNotice(authMode === 'login' ? 'Logged in successfully.' : 'Account created successfully.')
@@ -341,9 +384,9 @@ function App() {
     const method = (options.method || 'GET').toUpperCase()
     const response = await fetch(`${API_URL}${path}`, {
       ...options,
+      credentials: 'include',
       headers: {
         ...(options.headers || {}),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
     })
 
@@ -407,6 +450,8 @@ function App() {
       body: JSON.stringify({ currentPassword, newPassword }),
     })
     setNotice(data.message)
+    setAuthMessage('Password changed. Please sign in again.')
+    logout()
   }
 
   async function exportData() {
@@ -416,7 +461,7 @@ function App() {
       const response = await fetch(
         `${API_URL}/api/export?format=${encodeURIComponent(transferFormat)}`,
         {
-          headers: { Authorization: ['Bearer', token].join(' ') },
+          credentials: 'include',
         },
       )
       if (!response.ok) {
@@ -793,6 +838,12 @@ function App() {
   async function copyPrompt(prompt) {
     try {
       await navigator.clipboard.writeText(prompt.content)
+      try {
+        await apiRequest(`/api/prompts/${prompt.id}/copy`, { method: 'POST' })
+      } catch (trackingError) {
+        setError(`Prompt copied, but usage could not be recorded: ${trackingError.message}`)
+        return
+      }
       setNotice('Copied to clipboard.')
     } catch {
       setError('Clipboard access failed. Please copy manually.')
@@ -812,7 +863,17 @@ function App() {
     return <SharedPage type={sharedRoute[1]} shareId={sharedRoute[2]} />
   }
 
-  if (!token) {
+  if (!sessionChecked) {
+    return (
+      <div className="auth-shell">
+        <div className="auth-card">
+          <p className="auth-subtitle" role="status">Checking your session...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
     const authHeading =
       authMode === 'register'
         ? 'Create your account'
@@ -886,9 +947,9 @@ function App() {
                   onChange={(event) =>
                     setAuthForm((current) => ({ ...current, password: event.target.value }))
                   }
-                  placeholder="Enter at least 6 characters"
+                  placeholder={authMode === 'login' ? 'Enter your password' : 'At least 12 characters'}
                   required
-                  minLength={6}
+                  minLength={authMode === 'login' ? undefined : 12}
                 />
               </label>
             )}
@@ -902,7 +963,7 @@ function App() {
                   value={resetPasswordConfirm}
                   onChange={(event) => setResetPasswordConfirm(event.target.value)}
                   required
-                  minLength={6}
+                  minLength={12}
                 />
               </label>
             )}
@@ -1093,7 +1154,7 @@ function App() {
             >
               {user ? user.name : 'Workspace'}
             </button>
-            <button className="logout-button" onClick={logout} type="button">Logout</button>
+            <button className="logout-button" onClick={endSession} type="button">Logout</button>
           </div>
         </div>
       </aside>
@@ -1479,8 +1540,8 @@ function ProfileDialog({ user, onClose, onSave, onSaveTheme, onChangePassword })
 
   async function submitPassword(event) {
     event.preventDefault()
-    if (newPassword.length < 6) {
-      setError('New password must be at least 6 characters long.')
+    if (newPassword.length < 12) {
+      setError('New password must be at least 12 characters long.')
       return
     }
     if (newPassword !== confirmPassword) {
@@ -1594,7 +1655,7 @@ function ProfileDialog({ user, onClose, onSave, onSaveTheme, onChangePassword })
               <input
                 type="password"
                 autoComplete="new-password"
-                minLength={6}
+                minLength={12}
                 value={newPassword}
                 onChange={(event) => setNewPassword(event.target.value)}
                 required
@@ -1605,7 +1666,7 @@ function ProfileDialog({ user, onClose, onSave, onSaveTheme, onChangePassword })
               <input
                 type="password"
                 autoComplete="new-password"
-                minLength={6}
+                minLength={12}
                 value={confirmPassword}
                 onChange={(event) => setConfirmPassword(event.target.value)}
                 required

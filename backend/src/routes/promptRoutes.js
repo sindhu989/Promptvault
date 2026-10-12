@@ -1,6 +1,7 @@
 const express = require('express')
 const {
   listPrompts,
+  recordPromptCopy,
   createPrompt,
   updatePrompt,
   setPromptVisibility,
@@ -21,6 +22,7 @@ const router = express.Router()
 router.use(protect)
 router.get('/', listPrompts)
 router.post('/', createPrompt)
+router.post('/:id/copy', recordPromptCopy)
 router.get('/:id/versions', getPromptVersions)
 router.post('/:id/versions/:version/restore', restorePromptVersion)
 router.post('/:id/duplicate', duplicatePrompt)

@@ -4,7 +4,7 @@ const activitySchema = new mongoose.Schema(
   {
     userId: { type: String, required: true },
     action: { type: String, required: true, maxlength: 60 },
-    entityType: { type: String, required: true, enum: ['prompt', 'collection', 'import'] },
+    entityType: { type: String, required: true, enum: ['prompt', 'collection', 'import', 'auth'] },
     entityId: { type: String, default: '' },
     entityTitle: { type: String, required: true, maxlength: 160 },
     details: { type: String, default: '', maxlength: 200 },

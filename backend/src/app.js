@@ -1,7 +1,11 @@
 const express = require('express')
 const cors = require('cors')
+const cookieParser = require('cookie-parser')
 const dotenv = require('dotenv')
+dotenv.config()
+
 const fs = require('fs')
+const helmet = require('helmet')
 const mongoose = require('mongoose')
 const path = require('path')
 const authRoutes = require('./routes/authRoutes')
@@ -11,15 +15,49 @@ const publicRoutes = require('./routes/publicRoutes')
 const importExportRoutes = require('./routes/importExportRoutes')
 const activityRoutes = require('./routes/activityRoutes')
 const adminAuthRoutes = require('./routes/adminAuthRoutes')
-
-dotenv.config()
+const adminDashboardRoutes = require('./routes/adminDashboardRoutes')
 
 const app = express()
 if (process.env.NODE_ENV === 'production') app.set('trust proxy', 1)
 const frontendBuildPath = path.resolve(__dirname, '../../frontend/dist')
 const frontendIndexPath = path.join(frontendBuildPath, 'index.html')
+const allowedOrigins = new Set([
+  'http://localhost:4173',
+  'http://127.0.0.1:4173',
+  process.env.APP_URL,
+  process.env.RENDER_EXTERNAL_URL,
+  ...(process.env.CORS_ORIGINS || '').split(',').map((origin) => origin.trim()),
+].filter(Boolean).map((origin) => {
+  try {
+    return new URL(origin).origin
+  } catch {
+    throw new Error(`Invalid origin configured for CORS: ${origin}`)
+  }
+}))
 
-app.use(cors())
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      'font-src': ["'self'", 'data:', 'https://fonts.gstatic.com'],
+      'connect-src': ["'self'", ...allowedOrigins],
+    },
+  },
+}))
+app.use(cors({
+  origin: (origin, callback) => callback(null, !origin || allowedOrigins.has(origin)),
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+}))
+app.use((req, res, next) => {
+  const origin = req.get('origin')
+  if (origin && !allowedOrigins.has(origin)) {
+    return res.status(403).json({ message: 'Request origin is not allowed.' })
+  }
+  return next()
+})
+app.use(cookieParser())
 app.use(express.json({ limit: '1mb' }))
 
 app.get('/', (req, res) => {
@@ -49,6 +87,7 @@ app.get('/api/health', (req, res) => {
 
 app.use('/api/auth', authRoutes)
 app.use('/api/admin/auth', adminAuthRoutes)
+app.use('/api/admin/dashboard', adminDashboardRoutes)
 app.use('/api/public', publicRoutes)
 app.use('/api/prompts', promptRoutes)
 app.use('/api/collections', collectionRoutes)
@@ -71,8 +110,18 @@ app.use((req, res) => {
 })
 
 app.use((err, req, res, next) => {
-  console.error(err)
-  res.status(500).json({ message: err.message || 'Something went wrong on the server.' })
+  if (res.headersSent) return next(err)
+  const status = Number.isInteger(err.status) && err.status >= 400 && err.status < 500
+    ? err.status
+    : 500
+  if (status >= 500) console.error(err)
+  const message =
+    err.type === 'entity.parse.failed'
+      ? 'Request body contains invalid JSON.'
+      : status === 413
+        ? 'Request body is too large.'
+        : 'Something went wrong on the server.'
+  return res.status(status).json({ message })
 })
 
 module.exports = app

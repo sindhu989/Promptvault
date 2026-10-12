@@ -3,6 +3,7 @@ const { rateLimit } = require('express-rate-limit')
 const {
   register,
   login,
+  logout,
   getMe,
   updateProfile,
   updatePreferences,
@@ -13,6 +14,20 @@ const {
 const { protect } = require('../middleware/auth')
 
 const router = express.Router()
+const authAttemptLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { message: 'Too many authentication attempts. Please try again later.' },
+})
+const registrationLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { message: 'Too many registration attempts. Please try again later.' },
+})
 const passwordResetRequestLimit = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 5,
@@ -28,8 +43,9 @@ const passwordResetLimit = rateLimit({
   message: { message: 'Too many reset attempts. Please try again later.' },
 })
 
-router.post('/register', register)
-router.post('/login', login)
+router.post('/register', registrationLimit, register)
+router.post('/login', authAttemptLimit, login)
+router.post('/logout', logout)
 router.post('/forgot-password', passwordResetRequestLimit, requestPasswordReset)
 router.post('/reset-password', passwordResetLimit, resetPassword)
 router.get('/me', protect, getMe)

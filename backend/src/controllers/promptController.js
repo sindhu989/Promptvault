@@ -98,6 +98,22 @@ async function listPrompts(req, res) {
   return res.json({ prompts: userPrompts })
 }
 
+async function recordPromptCopy(req, res) {
+  const prompt = await findOwnedPrompt(req.params.id, req.user.id)
+  if (!prompt || prompt.archived) {
+    return res.status(404).json({ message: 'Prompt not found.' })
+  }
+
+  await recordActivity({
+    userId: req.user.id,
+    action: 'prompt.copied',
+    entityType: 'prompt',
+    entityId: prompt.id || prompt._id,
+    entityTitle: prompt.title,
+  })
+  return res.json({ message: 'Prompt copy recorded.' })
+}
+
 async function createPrompt(req, res) {
   const { title, description, content, category, tags, favorite } = req.body || {}
 
@@ -598,6 +614,7 @@ async function deletePrompt(req, res) {
 
 module.exports = {
   listPrompts,
+  recordPromptCopy,
   createPrompt,
   updatePrompt,
   getPublicPrompt,

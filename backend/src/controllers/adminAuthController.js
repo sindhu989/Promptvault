@@ -5,6 +5,7 @@ const { users, adminSessions, save } = require('../data/store')
 const { signAdminToken } = require('../utils/jwt')
 const User = require('../models/User')
 const AdminSession = require('../models/AdminSession')
+const { setAdminCookie } = require('../utils/authCookie')
 
 const ADMIN_SESSION_DURATION_MS = 30 * 60 * 1000
 
@@ -69,9 +70,9 @@ async function login(req, res, next) {
       save()
     }
 
+    setAdminCookie(res, signAdminToken(userId, tokenId))
     return res.json({
       message: 'Admin login successful.',
-      token: signAdminToken(userId, tokenId),
       expiresAt: expiresAt.toISOString(),
       user: sanitizeAdmin(user),
     })

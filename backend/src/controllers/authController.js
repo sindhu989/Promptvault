@@ -5,10 +5,25 @@ const { users, save } = require('../data/store')
 const { signToken } = require('../utils/jwt')
 const User = require('../models/User')
 const { sendPasswordResetEmail } = require('../services/passwordResetEmail')
+const { setUserCookie, clearUserCookie } = require('../utils/authCookie')
+
+const MIN_PASSWORD_LENGTH = 12
+const MAX_PASSWORD_BYTES = 72
+
+function getPasswordError(password, label = 'Password') {
+  const value = String(password)
+  if (value.length < MIN_PASSWORD_LENGTH) {
+    return `${label} must be at least ${MIN_PASSWORD_LENGTH} characters long.`
+  }
+  if (Buffer.byteLength(value, 'utf8') > MAX_PASSWORD_BYTES) {
+    return `${label} cannot be longer than ${MAX_PASSWORD_BYTES} UTF-8 bytes.`
+  }
+  return null
+}
 
 function sanitizeUser(user) {
   if (!user) return null
-  const { password, _id, ...safeUser } = user.toObject ? user.toObject() : user
+  const { password, _id, authVersion, ...safeUser } = user.toObject ? user.toObject() : user
   return {
     ...safeUser,
     role: safeUser.role === 'admin' ? 'admin' : 'user',
@@ -38,29 +53,38 @@ async function register(req, res) {
     return res.status(400).json({ message: 'Name, email, and password are required.' })
   }
 
-  if (String(password).length < 6) {
-    return res.status(400).json({ message: 'Password must be at least 6 characters long.' })
-  }
+  const passwordError = getPasswordError(password)
+  if (passwordError) return res.status(400).json({ message: passwordError })
 
   const normalizedEmail = String(email).trim().toLowerCase()
+  if (normalizedEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    return res.status(400).json({ message: 'Enter a valid email address.' })
+  }
+  const normalizedName = String(name).trim()
+  if (!normalizedName || normalizedName.length > 80) {
+    return res.status(400).json({ message: 'Name must be between 1 and 80 characters.' })
+  }
 
   if (isMongoConnected()) {
-    const existingUser = await User.findOne({ email: normalizedEmail })
-    if (existingUser) {
-      return res.status(409).json({ message: 'A user with this email already exists.' })
+    const passwordHash = await bcrypt.hash(String(password), 10)
+    let newUser
+    try {
+      newUser = await User.create({
+        name: normalizedName,
+        email: normalizedEmail,
+        password: passwordHash,
+      })
+    } catch (error) {
+      if (error.code === 11000) {
+        return res.status(409).json({ message: 'A user with this email already exists.' })
+      }
+      throw error
     }
 
-    const passwordHash = await bcrypt.hash(String(password), 10)
-    const newUser = await User.create({
-      name: String(name).trim(),
-      email: normalizedEmail,
-      password: passwordHash,
-    })
-
     const safeUser = sanitizeUser(newUser)
+    setUserCookie(res, signToken(String(newUser._id), newUser.authVersion))
     return res.status(201).json({
       message: 'User registered successfully.',
-      token: signToken(String(newUser._id)),
       user: safeUser,
     })
   }
@@ -72,19 +96,20 @@ async function register(req, res) {
 
   const passwordHash = await bcrypt.hash(String(password), 10)
   const newUser = {
-    id: `user-${Date.now()}`,
-    name: String(name).trim(),
+    id: `user-${crypto.randomUUID()}`,
+    name: normalizedName,
     email: normalizedEmail,
     password: passwordHash,
+    authVersion: 0,
     createdAt: new Date().toISOString(),
   }
 
   users.push(newUser)
   save()
 
+  setUserCookie(res, signToken(newUser.id, newUser.authVersion))
   return res.status(201).json({
     message: 'User registered successfully.',
-    token: signToken(newUser.id),
     user: sanitizeUser(newUser),
   })
 }
@@ -107,15 +132,20 @@ async function login(req, res) {
   }
 
   const userId = String(user._id || user.id)
+  setUserCookie(res, signToken(userId, user.authVersion))
   return res.json({
     message: 'Login successful.',
-    token: signToken(userId),
     user: sanitizeUser(user),
   })
 }
 
 function getMe(req, res) {
   return res.json({ user: req.user })
+}
+
+function logout(req, res) {
+  clearUserCookie(res)
+  return res.json({ message: 'Session ended.' })
 }
 
 async function updateProfile(req, res) {
@@ -167,9 +197,8 @@ async function changePassword(req, res) {
   if (!currentPassword || !newPassword) {
     return res.status(400).json({ message: 'Current and new passwords are required.' })
   }
-  if (String(newPassword).length < 6) {
-    return res.status(400).json({ message: 'New password must be at least 6 characters long.' })
-  }
+  const passwordError = getPasswordError(newPassword, 'New password')
+  if (passwordError) return res.status(400).json({ message: passwordError })
   if (String(currentPassword) === String(newPassword)) {
     return res.status(400).json({ message: 'New password must be different from the current password.' })
   }
@@ -185,12 +214,14 @@ async function changePassword(req, res) {
   }
 
   user.password = await bcrypt.hash(String(newPassword), 10)
+  user.authVersion = (user.authVersion || 0) + 1
   if (isMongoConnected()) {
     await user.save()
   } else {
     save()
   }
 
+  clearUserCookie(res)
   return res.json({ message: 'Password changed successfully.' })
 }
 
@@ -240,9 +271,7 @@ async function requestPasswordReset(req, res) {
       save()
     }
     console.error('Could not send password reset email:', error.message)
-    return res.status(503).json({
-      message: 'Password reset email could not be sent. Please try again later.',
-    })
+    return res.json({ message: 'If an account exists, a password reset link will be sent.' })
   }
 
   return res.json({ message: 'If an account exists, a password reset link will be sent.' })
@@ -254,9 +283,8 @@ async function resetPassword(req, res) {
   if (!token || !newPassword) {
     return res.status(400).json({ message: 'Reset token and new password are required.' })
   }
-  if (newPassword.length < 6) {
-    return res.status(400).json({ message: 'New password must be at least 6 characters long.' })
-  }
+  const passwordError = getPasswordError(newPassword, 'New password')
+  if (passwordError) return res.status(400).json({ message: passwordError })
 
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex')
   const now = new Date()
@@ -276,6 +304,7 @@ async function resetPassword(req, res) {
   }
 
   user.password = await bcrypt.hash(newPassword, 10)
+  user.authVersion = (user.authVersion || 0) + 1
   user.passwordResetToken = undefined
   user.passwordResetExpires = undefined
   if (isMongoConnected()) {
@@ -284,12 +313,14 @@ async function resetPassword(req, res) {
     save()
   }
 
+  clearUserCookie(res)
   return res.json({ message: 'Password reset successfully. You can now log in.' })
 }
 
 module.exports = {
   register,
   login,
+  logout,
   getMe,
   updateProfile,
   updatePreferences,

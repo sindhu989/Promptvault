@@ -9,21 +9,27 @@ function getSecret() {
   return 'dev-secret'
 }
 
-function signToken(userId) {
-  return jwt.sign({ id: userId }, getSecret(), {
+function signToken(userId, authVersion = 0) {
+  return jwt.sign({ id: userId, version: authVersion }, getSecret(), {
     expiresIn: '7d',
+    issuer: 'promptvault',
+    audience: 'promptvault-user',
   })
 }
 
 function signAdminToken(userId, sessionId) {
   return jwt.sign({ id: userId, scope: 'admin', jti: sessionId }, getSecret(), {
     expiresIn: '30m',
+    issuer: 'promptvault',
     audience: 'promptvault-admin',
   })
 }
 
 function verifyToken(token) {
-  return jwt.verify(token, getSecret())
+  return jwt.verify(token, getSecret(), {
+    algorithms: ['HS256'],
+    issuer: 'promptvault',
+  })
 }
 
 module.exports = { signToken, signAdminToken, verifyToken }

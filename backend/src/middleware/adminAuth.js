@@ -1,12 +1,12 @@
 const mongoose = require('mongoose')
 const { verifyToken } = require('../utils/jwt')
+const { adminCookieName, clearAdminCookie } = require('../utils/authCookie')
 const { users, adminSessions, save } = require('../data/store')
 const User = require('../models/User')
 const AdminSession = require('../models/AdminSession')
 
 async function protectAdmin(req, res, next) {
-  const authHeader = req.headers.authorization || ''
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
+  const token = req.cookies?.[adminCookieName]
   if (!token) return res.status(401).json({ message: 'Admin authentication required.' })
 
   let decoded
@@ -70,6 +70,7 @@ async function revokeAdminSession(req, res, next) {
       req.adminSession.revokedAt = new Date().toISOString()
       save()
     }
+    clearAdminCookie(res)
     return res.json({ message: 'Admin session ended.' })
   } catch (error) {
     return next(error)

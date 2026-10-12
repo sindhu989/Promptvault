@@ -27,6 +27,7 @@ Phase 13 — validated prompt import and multi-format export: complete.
 Phase 14 — authenticated activity history: complete.
 Phase 15 — account-level light and dark themes: complete.
 Phase 16 — secure admin access foundation: complete.
+Phase 17 — admin platform dashboard: complete.
 
 The frontend supports creating, searching, filtering, favoriting, copying,
 editing, and deleting prompts. The UI is connected to the real API and includes
@@ -53,15 +54,24 @@ to 500 entries per user.
 Users can select a light or dark appearance from account settings; the selected
 theme is saved to their profile and applied automatically on later sign-ins.
 Admin access uses a separate sign-in page, server-verified roles, rate-limited
-login, and revocable 30-minute sessions. User registration always creates a
-standard user account; it cannot assign admin privileges.
+login, and revocable 30-minute HTTP-only cookie sessions. User registration
+always creates a standard user account; it cannot assign admin privileges.
+User and admin sessions are held in `HttpOnly`, `SameSite=Strict` cookies and
+are never returned as JavaScript-readable tokens. Password changes invalidate
+existing user sessions. Existing browser bearer-token sessions are not migrated;
+users and admins must sign in again after deploying this authentication change.
+The protected admin dashboard summarizes users, prompts, collections, saved
+tests, recorded prompt copies, and recent activity. Active and new user counts
+use a rolling 30-day window. Usage totals reflect retained activity and saved
+test results; historical copy counts are available only for copies recorded
+since copy tracking was enabled.
 Password recovery uses one-time tokens stored as hashes and expires after one
 hour. Reset request and submission routes are rate-limited. Recovery email is
 sent through Resend only after the sender domain is verified and the service is
 configured.
 
-The backend includes Express routes, JWT authentication, and prompt CRUD
-operations. It supports a real MongoDB connection when `MONGODB_URI` is set.
+The backend includes Express routes, HTTP-only cookie authentication, and prompt
+CRUD operations. It supports a real MongoDB connection when `MONGODB_URI` is set.
 Without that variable, development uses JSON storage at
 `backend/.data/store.json`, which persists across backend restarts. This local
 fallback is intended for single-process development; use MongoDB for deployment.
@@ -91,7 +101,10 @@ The authenticated `PUT /api/auth/preferences` endpoint accepts
 Admin sign-in is available at `/admin` and uses `POST /api/admin/auth/login`.
 The protected `GET /api/admin/auth/me` and `POST /api/admin/auth/logout`
 endpoints verify and end admin sessions. Admin account bootstrap is described
-below; the broader dashboard and management tools are separate follow-on work.
+below; user and prompt management tools are separate follow-on work.
+The admin-only `GET /api/admin/dashboard` endpoint provides current platform
+counts and the latest 12 activity records. Dashboard statistics refresh
+automatically once per minute.
 
 ## Run the frontend
 
@@ -129,8 +142,9 @@ cannot be self-assigned through the public registration or profile APIs.
 
 If `MONGODB_URI` is omitted, users and prompts are saved in
 `backend/.data/store.json`. The local data directory is excluded from Git.
-The frontend is available at http://localhost:4173 and the backend at
-http://localhost:5000.
+The frontend is available at http://localhost:4173 and proxies `/api` requests
+to the backend at http://localhost:5000. Browser code stores no API credentials;
+MongoDB, JWT, bootstrap, and email secrets are configured only on the backend.
 
 ## Deploy to Render
 
@@ -159,12 +173,20 @@ a deployment: it is single-process development storage and may not persist
 across host restarts or redeployments. Shared prompt and collection URLs use the
 deployed service's own domain.
 
+User passwords must be at least 12 characters and no more than 72 UTF-8 bytes.
+Configure secrets in the Render service's private Environment settings, never
+in source files or `VITE_*` frontend variables. The optional `CORS_ORIGINS`
+backend variable accepts a comma-separated allowlist only when the frontend is
+hosted separately. A split frontend and API must still share the same site for
+the strict session cookies to be sent; keep both on the same origin when possible.
+
 ### Enable password-reset email
 
 Email recovery requires a Resend account and a sender domain verified with
 Resend. In Render's **Environment** settings, add `RESEND_API_KEY` and
 `RESEND_FROM` using the verified sender address, for example
 `PromptVault <no-reply@yourdomain.com>`. Render's `RENDER_EXTERNAL_URL` is used
-to construct reset links. Keep the API key private. Without these email
-settings, reset requests return an explicit configuration/delivery error;
-login and other app features continue to work.
+to construct reset links. Keep the API key private. Reset requests always use
+the same public response to prevent account discovery; email delivery failures
+are reported in the backend logs. Login and other app features continue to
+work without email settings.
