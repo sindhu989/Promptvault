@@ -31,7 +31,14 @@ async function protectAdmin(req, res, next) {
           expiresAt: { $gt: new Date() },
         }).lean(),
       ])
-      if (!user || user.role !== 'admin' || !session) {
+      if (
+        !user ||
+        user.role !== 'admin' ||
+        user.status === 'suspended' ||
+        user.status === 'deactivated' ||
+        (decoded.version || 0) !== (user.authVersion || 0) ||
+        !session
+      ) {
         return res.status(401).json({ message: 'Admin session is invalid or expired.' })
       }
       req.user = { id: String(user._id), name: user.name, email: user.email, role: user.role }
@@ -47,7 +54,14 @@ async function protectAdmin(req, res, next) {
         !item.revokedAt &&
         new Date(item.expiresAt) > new Date(),
     )
-    if (!user || user.role !== 'admin' || !session) {
+    if (
+      !user ||
+      user.role !== 'admin' ||
+      user.status === 'suspended' ||
+      user.status === 'deactivated' ||
+      (decoded.version || 0) !== (user.authVersion || 0) ||
+      !session
+    ) {
       return res.status(401).json({ message: 'Admin session is invalid or expired.' })
     }
 

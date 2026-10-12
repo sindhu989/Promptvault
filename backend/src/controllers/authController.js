@@ -100,6 +100,8 @@ async function register(req, res) {
     name: normalizedName,
     email: normalizedEmail,
     password: passwordHash,
+    role: 'user',
+    status: 'active',
     authVersion: 0,
     createdAt: new Date().toISOString(),
   }
@@ -129,6 +131,9 @@ async function login(req, res) {
   const isMatch = await bcrypt.compare(String(password), user.password)
   if (!isMatch) {
     return res.status(401).json({ message: 'Invalid email or password.' })
+  }
+  if (user.status === 'suspended' || user.status === 'deactivated') {
+    return res.status(403).json({ message: 'This account is not active.' })
   }
 
   const userId = String(user._id || user.id)

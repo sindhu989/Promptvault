@@ -50,6 +50,20 @@ function AdminApp() {
   const [dashboardLoading, setDashboardLoading] = useState(false)
   const [dashboardError, setDashboardError] = useState('')
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0)
+  const [activeSection, setActiveSection] = useState('overview')
+  const [users, setUsers] = useState([])
+  const [userSearch, setUserSearch] = useState('')
+  const [userStatusFilter, setUserStatusFilter] = useState('')
+  const [userRoleFilter, setUserRoleFilter] = useState('')
+  const [userPage, setUserPage] = useState(1)
+  const [userPagination, setUserPagination] = useState({ page: 1, pages: 0, total: 0 })
+  const [usersLoading, setUsersLoading] = useState(false)
+  const [usersError, setUsersError] = useState('')
+  const [usersMessage, setUsersMessage] = useState('')
+  const [userRefreshKey, setUserRefreshKey] = useState(0)
+  const [selectedUser, setSelectedUser] = useState(null)
+  const [selectedUserLoading, setSelectedUserLoading] = useState(false)
+  const selectedUserId = selectedUser?.id
 
   useEffect(() => {
     try {
@@ -132,6 +146,86 @@ function AdminApp() {
     }
   }, [dashboardRefreshKey, hasSession, user])
 
+  useEffect(() => {
+    if (!hasSession || !user || activeSection !== 'users') return undefined
+    let active = true
+    const params = new URLSearchParams({
+      page: String(userPage),
+      search: userSearch,
+      status: userStatusFilter,
+      role: userRoleFilter,
+    })
+
+    async function loadUsers() {
+      setUsersLoading(true)
+      setUsersError('')
+      try {
+        const response = await fetch(`${API_URL}/api/admin/dashboard/users?${params}`, {
+          credentials: 'include',
+        })
+        const data = await response.json()
+        if (response.status === 401) {
+          if (active) {
+            setHasSession(false)
+            setUser(null)
+            setMessage('Your admin session expired. Sign in again.')
+          }
+          return
+        }
+        if (!response.ok) throw new Error(data.message || 'Could not load users.')
+        if (active) {
+          setUsers(data.users || [])
+          setUserPagination(data.pagination || { page: 1, pages: 0, total: 0 })
+        }
+      } catch (loadError) {
+        if (active) setUsersError(loadError.message || 'Could not load users.')
+      } finally {
+        if (active) setUsersLoading(false)
+      }
+    }
+
+    const debounce = window.setTimeout(loadUsers, 200)
+    return () => {
+      active = false
+      window.clearTimeout(debounce)
+    }
+  }, [activeSection, hasSession, user, userPage, userRefreshKey, userRoleFilter, userSearch, userStatusFilter])
+
+  useEffect(() => {
+    if (!selectedUserId || !hasSession) return undefined
+    let active = true
+
+    async function loadUserDetails() {
+      setSelectedUserLoading(true)
+      try {
+        const response = await fetch(
+          `${API_URL}/api/admin/dashboard/users/${encodeURIComponent(selectedUserId)}`,
+          { credentials: 'include' },
+        )
+        const data = await response.json()
+        if (response.status === 401) {
+          if (active) {
+            setHasSession(false)
+            setUser(null)
+            setMessage('Your admin session expired. Sign in again.')
+          }
+          return
+        }
+        if (!response.ok) throw new Error(data.message || 'Could not load user details.')
+        if (active) setSelectedUser({ ...data.user, prompts: data.prompts, activity: data.activity })
+      } catch (detailError) {
+        if (active) setUsersError(detailError.message || 'Could not load user details.')
+      } finally {
+        if (active) setSelectedUserLoading(false)
+      }
+    }
+
+    loadUserDetails()
+    return () => {
+      active = false
+    }
+  }, [hasSession, selectedUserId, userRefreshKey])
+
   async function submitLogin(event) {
     event.preventDefault()
     setPending(true)
@@ -179,81 +273,277 @@ function AdminApp() {
     }
   }
 
+  async function updateSelectedStatus(userRow, status) {
+    if (userRow.status === status) return
+    if (!window.confirm(`Change ${userRow.email}'s status to ${status}? Their active sessions may be ended.`)) {
+      setUserRefreshKey((current) => current + 1)
+      return
+    }
+    await runUserAction(userRow, `/status`, 'PATCH', { status }, 'User status updated.')
+  }
+
+  async function updateSelectedRole(userRow, role) {
+    if (userRow.role === role) return
+    if (!window.confirm(`Change ${userRow.email}'s role to ${role}?`)) {
+      setUserRefreshKey((current) => current + 1)
+      return
+    }
+    await runUserAction(userRow, `/role`, 'PATCH', { role }, 'User role updated.')
+  }
+
+  async function runUserAction(userRow, suffix, method, body, successMessage) {
+    setUsersError('')
+    setUsersMessage('')
+    try {
+      const response = await fetch(
+        `${API_URL}/api/admin/dashboard/users/${encodeURIComponent(userRow.id)}${suffix}`,
+        {
+          method,
+          credentials: 'include',
+          headers: body ? { 'Content-Type': 'application/json' } : {},
+          ...(body ? { body: JSON.stringify(body) } : {}),
+        },
+      )
+      const data = await response.json()
+      if (response.status === 401) {
+        setHasSession(false)
+        setUser(null)
+        setMessage('Your admin session expired. Sign in again.')
+        return
+      }
+      if (!response.ok) throw new Error(data.message || 'Could not complete the user action.')
+      setUsersMessage(data.message || successMessage)
+      setUserRefreshKey((current) => current + 1)
+      if (selectedUser?.id === userRow.id) setSelectedUser(null)
+    } catch (actionError) {
+      setUsersError(actionError.message || 'Could not complete the user action.')
+      setUserRefreshKey((current) => current + 1)
+    }
+  }
+
+  function deleteSelectedUser(userRow) {
+    const confirmation = window.prompt(
+      `This permanently deletes ${userRow.email} and their prompts, collections, and activity. Type DELETE to confirm.`,
+    )
+    if (confirmation !== 'DELETE') return
+    runUserAction(userRow, '', 'DELETE', null, 'User deleted.')
+  }
+
+  function resetSelectedUserAccess(userRow) {
+    if (!window.confirm(`End every active session for ${userRow.email}?`)) return
+    runUserAction(userRow, '/reset-access', 'POST', null, 'User access reset.')
+  }
+
   return (
     <main className={`admin-page ${user ? 'admin-page-dashboard' : ''}`}>
       <section className={`admin-card ${user ? 'admin-card-dashboard' : ''}`}>
-        <div className="admin-brand">
-          <span className="admin-brand-mark" aria-hidden="true">P</span>
-          <span>PromptVault <strong>Admin</strong></span>
-        </div>
+        {!user && (
+          <div className="admin-brand">
+            <span className="admin-brand-mark" aria-hidden="true">P</span>
+            <span>PromptVault <strong>Admin</strong></span>
+          </div>
+        )}
 
         {loading ? (
           <p className="admin-status" role="status">Verifying admin session...</p>
         ) : user ? (
-          <div className="admin-dashboard">
-            <header className="admin-dashboard-header">
-              <div>
-                <span className="admin-kicker">PLATFORM OVERVIEW</span>
-                <h1>Admin dashboard</h1>
-                <p className="admin-description">
-                  Signed in as {user.email}. Admin session expires after 30 minutes.
-                </p>
+          <div className="admin-layout">
+            <aside className="admin-sidebar">
+              <div className="admin-brand">
+                <span className="admin-brand-mark" aria-hidden="true">P</span>
+                <span>PromptVault <strong>Admin</strong></span>
               </div>
-              <div className="admin-header-actions">
+              <span className="admin-sidebar-label">PLATFORM</span>
+              <nav className="admin-nav" aria-label="Admin navigation">
                 <button
-                  className="admin-secondary-button"
+                  className={`admin-nav-item ${activeSection === 'overview' ? 'active' : ''}`}
                   type="button"
-                  onClick={() => setDashboardRefreshKey((current) => current + 1)}
-                  disabled={dashboardLoading}
+                  onClick={() => setActiveSection('overview')}
                 >
-                  {dashboardLoading ? 'Refreshing...' : 'Refresh'}
+                  <span aria-hidden="true">▦</span> Overview
                 </button>
+                <button
+                  className={`admin-nav-item ${activeSection === 'users' ? 'active' : ''}`}
+                  type="button"
+                  onClick={() => setActiveSection('users')}
+                >
+                  <span aria-hidden="true">♙</span> Users
+                </button>
+              </nav>
+              <div className="admin-sidebar-footer">
+                <strong>{user.name}</strong>
+                <span>{user.email}</span>
                 <button className="admin-secondary-button" type="button" onClick={logout} disabled={pending}>
                   {pending ? 'Signing out...' : 'Sign out'}
                 </button>
               </div>
-            </header>
-            {dashboardError && <div className="admin-error" role="alert">{dashboardError}</div>}
-            <section className="admin-stats-grid" aria-label="Platform statistics">
-              {dashboardStats.map(({ key, label }) => (
-                <article className="admin-stat-card" key={key}>
-                  <span>{label}</span>
-                  <strong>{dashboard ? Number(dashboard.stats[key] || 0).toLocaleString() : dashboardLoading ? '…' : '—'}</strong>
-                </article>
-              ))}
-            </section>
-            <section className="admin-activity">
-              <div className="admin-section-heading">
+            </aside>
+            <section className="admin-main">
+              <header className="admin-dashboard-header">
                 <div>
-                  <h2>Recent activity</h2>
-                  <p>Latest recorded actions across user accounts</p>
+                  <span className="admin-kicker">{activeSection === 'overview' ? 'PLATFORM OVERVIEW' : 'PLATFORM MANAGEMENT'}</span>
+                  <h1>{activeSection === 'overview' ? 'Admin dashboard' : 'User management'}</h1>
+                  <p className="admin-description">
+                    {activeSection === 'overview'
+                      ? 'Platform health and current usage at a glance.'
+                      : 'Search accounts, manage access, and review user activity.'}
+                  </p>
                 </div>
-                {dashboard?.generatedAt && (
-                  <span>Updated {new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(dashboard.generatedAt))}</span>
+                {activeSection === 'overview' && (
+                  <button
+                    className="admin-secondary-button"
+                    type="button"
+                    onClick={() => setDashboardRefreshKey((current) => current + 1)}
+                    disabled={dashboardLoading}
+                  >
+                    {dashboardLoading ? 'Refreshing...' : 'Refresh overview'}
+                  </button>
                 )}
-              </div>
-              {dashboardLoading && !dashboard ? (
-                <p className="admin-status" role="status">Loading platform statistics...</p>
-              ) : dashboard?.recentActivity?.length ? (
-                <div className="admin-activity-list">
-                  {dashboard.recentActivity.map((activity) => (
-                    <article className="admin-activity-row" key={activity.id}>
-                      <div className="admin-activity-marker" aria-hidden="true">•</div>
-                      <div className="admin-activity-copy">
-                        <strong>{activityLabels[activity.action] || activity.action}</strong>
-                        <span>{activity.entityTitle || activity.entityType}</span>
+              </header>
+              {activeSection === 'overview' ? (
+                <div className="admin-dashboard-content">
+                  {dashboardError && <div className="admin-error" role="alert">{dashboardError}</div>}
+                  <section className="admin-stats-grid" aria-label="Platform statistics">
+                    {dashboardStats.map(({ key, label }) => (
+                      <article className="admin-stat-card" key={key}>
+                        <span>{label}</span>
+                        <strong>{dashboard ? Number(dashboard.stats[key] || 0).toLocaleString() : dashboardLoading ? '…' : '—'}</strong>
+                      </article>
+                    ))}
+                  </section>
+                  <section className="admin-activity">
+                    <div className="admin-section-heading">
+                      <div>
+                        <h2>Recent activity</h2>
+                        <p>Latest recorded actions across user accounts</p>
                       </div>
-                      <div className="admin-activity-meta">
-                        <span>User {String(activity.userId).slice(-6)}</span>
-                        <time dateTime={activity.createdAt}>
-                          {new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(activity.createdAt))}
-                        </time>
+                      {dashboard?.generatedAt && (
+                        <span>Updated {new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(dashboard.generatedAt))}</span>
+                      )}
+                    </div>
+                    {dashboardLoading && !dashboard ? (
+                      <p className="admin-status" role="status">Loading platform statistics...</p>
+                    ) : dashboard?.recentActivity?.length ? (
+                      <div className="admin-activity-list">
+                        {dashboard.recentActivity.map((activity) => (
+                          <article className="admin-activity-row" key={activity.id}>
+                            <div className="admin-activity-marker" aria-hidden="true">•</div>
+                            <div className="admin-activity-copy">
+                              <strong>{activityLabels[activity.action] || activity.action}</strong>
+                              <span>{activity.entityTitle || activity.entityType}</span>
+                            </div>
+                            <div className="admin-activity-meta">
+                              <span>User {String(activity.userId).slice(-6)}</span>
+                              <time dateTime={activity.createdAt}>
+                                {new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(activity.createdAt))}
+                              </time>
+                            </div>
+                          </article>
+                        ))}
                       </div>
-                    </article>
-                  ))}
+                    ) : (
+                      <p className="admin-empty-state">No recorded activity yet.</p>
+                    )}
+                  </section>
                 </div>
               ) : (
-                <p className="admin-empty-state">No recorded activity yet.</p>
+                <section className="admin-users-panel">
+                  <div className="admin-users-toolbar">
+                    <label className="admin-search">
+                      <span className="visually-hidden">Search users</span>
+                      <input
+                        value={userSearch}
+                        onChange={(event) => { setUserSearch(event.target.value); setUserPage(1) }}
+                        placeholder="Search by name or email"
+                        maxLength={100}
+                      />
+                    </label>
+                    <label>
+                      <span className="visually-hidden">Filter by status</span>
+                      <select value={userStatusFilter} onChange={(event) => { setUserStatusFilter(event.target.value); setUserPage(1) }}>
+                        <option value="">All statuses</option>
+                        <option value="active">Active</option>
+                        <option value="deactivated">Deactivated</option>
+                        <option value="suspended">Suspended</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span className="visually-hidden">Filter by role</span>
+                      <select value={userRoleFilter} onChange={(event) => { setUserRoleFilter(event.target.value); setUserPage(1) }}>
+                        <option value="">All roles</option>
+                        <option value="user">User</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                    </label>
+                  </div>
+                  {usersError && <div className="admin-error" role="alert">{usersError}</div>}
+                  {usersMessage && <div className="admin-message" role="status">{usersMessage}</div>}
+                  {usersLoading ? (
+                    <p className="admin-status" role="status">Loading users...</p>
+                  ) : users.length ? (
+                    <div className="admin-users-table-wrap">
+                      <table className="admin-users-table">
+                        <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Prompts</th><th>Joined</th><th>Actions</th></tr></thead>
+                        <tbody>
+                          {users.map((userRow) => (
+                            <tr key={userRow.id}>
+                              <td>
+                                <button className="admin-user-link" type="button" onClick={() => setSelectedUser(userRow)}>
+                                  <strong>{userRow.name}</strong><span>{userRow.email}</span>
+                                </button>
+                              </td>
+                              <td>
+                                <select
+                                  aria-label={`Role for ${userRow.email}`}
+                                  value={userRow.role}
+                                  disabled={userRow.id === user.id}
+                                  onChange={(event) => updateSelectedRole(userRow, event.target.value)}
+                                >
+                                  <option value="user">User</option><option value="admin">Admin</option>
+                                </select>
+                              </td>
+                              <td>
+                                <select
+                                  aria-label={`Status for ${userRow.email}`}
+                                  value={userRow.status}
+                                  disabled={userRow.id === user.id}
+                                  onChange={(event) => updateSelectedStatus(userRow, event.target.value)}
+                                >
+                                  <option value="active">Active</option><option value="deactivated">Deactivated</option><option value="suspended">Suspended</option>
+                                </select>
+                              </td>
+                              <td>{userRow.promptCount}</td>
+                              <td>{userRow.createdAt ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(userRow.createdAt)) : '—'}</td>
+                              <td>
+                                <div className="admin-user-actions">
+                                  <button type="button" onClick={() => setSelectedUser(userRow)}>View</button>
+                                  <button type="button" onClick={() => resetSelectedUserAccess(userRow)} disabled={userRow.id === user.id}>Reset access</button>
+                                  <button type="button" className="danger" onClick={() => deleteSelectedUser(userRow)} disabled={userRow.id === user.id}>Delete</button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="admin-empty-state">No users match these filters.</p>
+                  )}
+                  <footer className="admin-pagination">
+                    <span>{userPagination.total} accounts · Page {userPagination.pages ? userPagination.page : 0} of {userPagination.pages}</span>
+                    <div>
+                      <button type="button" onClick={() => setUserPage((page) => Math.max(1, page - 1))} disabled={userPage <= 1 || usersLoading}>Previous</button>
+                      <button type="button" onClick={() => setUserPage((page) => Math.min(userPagination.pages, page + 1))} disabled={userPage >= userPagination.pages || usersLoading}>Next</button>
+                    </div>
+                  </footer>
+                  {selectedUser && (
+                    <UserDetailsPanel
+                      user={selectedUser}
+                      loading={selectedUserLoading}
+                      onClose={() => setSelectedUser(null)}
+                    />
+                  )}
+                </section>
               )}
             </section>
           </div>
@@ -303,6 +593,59 @@ function AdminApp() {
         )}
       </section>
     </main>
+  )
+}
+
+function UserDetailsPanel({ user, loading, onClose }) {
+  return (
+    <section className="admin-user-details" aria-labelledby="admin-user-details-title">
+      <header>
+        <div>
+          <span className="admin-kicker">ACCOUNT DETAILS</span>
+          <h2 id="admin-user-details-title">{user.name}</h2>
+          <p>{user.email}</p>
+        </div>
+        <button className="admin-secondary-button" type="button" onClick={onClose}>Close</button>
+      </header>
+      <div className="admin-user-summary">
+        <span>Role <strong>{user.role}</strong></span>
+        <span>Status <strong>{user.status}</strong></span>
+        <span>Prompts <strong>{user.promptCount ?? user.prompts?.length ?? 0}</strong></span>
+        <span>Joined <strong>{user.createdAt ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(user.createdAt)) : '—'}</strong></span>
+      </div>
+      {loading ? (
+        <p className="admin-status" role="status">Loading account details...</p>
+      ) : (
+        <div className="admin-user-details-grid">
+          <section>
+            <h3>Prompts</h3>
+            {user.prompts?.length ? (
+              <ul className="admin-detail-list">
+                {user.prompts.map((prompt) => (
+                  <li key={prompt.id || prompt._id}>
+                    <strong>{prompt.title}</strong>
+                    <span>{prompt.category} · {prompt.isPublic ? 'Public' : 'Private'}{prompt.archived ? ' · Archived' : ''}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="admin-detail-empty">No prompts found.</p>}
+          </section>
+          <section>
+            <h3>Recent account activity</h3>
+            {user.activity?.length ? (
+              <ul className="admin-detail-list">
+                {user.activity.slice(0, 20).map((item, index) => (
+                  <li key={`${item.action}-${item.createdAt}-${index}`}>
+                    <strong>{activityLabels[item.action] || item.action}</strong>
+                    <span>{item.entityTitle} · {item.createdAt ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.createdAt)) : ''}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="admin-detail-empty">No activity found.</p>}
+          </section>
+        </div>
+      )}
+    </section>
   )
 }
 

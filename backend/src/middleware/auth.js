@@ -23,7 +23,7 @@ async function protect(req, res, next) {
 
     if (mongoose.connection.readyState === 1) {
       const user = await User.findById(decoded.id).lean()
-      if (!user || (decoded.version || 0) !== (user.authVersion || 0)) {
+      if (!user || user.status === 'suspended' || user.status === 'deactivated' || (decoded.version || 0) !== (user.authVersion || 0)) {
         return res.status(401).json({ message: 'User not found.' })
       }
 
@@ -38,7 +38,7 @@ async function protect(req, res, next) {
     }
 
     const user = users.find((item) => item.id === decoded.id)
-    if (!user || (decoded.version || 0) !== (user.authVersion || 0)) {
+    if (!user || user.status === 'suspended' || user.status === 'deactivated' || (decoded.version || 0) !== (user.authVersion || 0)) {
       return res.status(401).json({ message: 'User not found.' })
     }
 

@@ -17,8 +17,8 @@ function signToken(userId, authVersion = 0) {
   })
 }
 
-function signAdminToken(userId, sessionId) {
-  return jwt.sign({ id: userId, scope: 'admin', jti: sessionId }, getSecret(), {
+function signAdminToken(userId, sessionId, authVersion = 0) {
+  return jwt.sign({ id: userId, scope: 'admin', jti: sessionId, version: authVersion }, getSecret(), {
     expiresIn: '30m',
     issuer: 'promptvault',
     audience: 'promptvault-admin',

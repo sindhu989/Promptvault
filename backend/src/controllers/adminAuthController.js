@@ -40,6 +40,9 @@ async function login(req, res, next) {
     if (!user || !(await bcrypt.compare(String(password), user.password))) {
       return res.status(401).json({ message: 'Invalid email or password.' })
     }
+    if (user.status === 'suspended' || user.status === 'deactivated') {
+      return res.status(403).json({ message: 'This account is not active.' })
+    }
 
     const bootstrapEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase()
     if (user.role !== 'admin') {
@@ -70,7 +73,7 @@ async function login(req, res, next) {
       save()
     }
 
-    setAdminCookie(res, signAdminToken(userId, tokenId))
+    setAdminCookie(res, signAdminToken(userId, tokenId, user.authVersion || 0))
     return res.json({
       message: 'Admin login successful.',
       expiresAt: expiresAt.toISOString(),

@@ -28,6 +28,7 @@ Phase 14 — authenticated activity history: complete.
 Phase 15 — account-level light and dark themes: complete.
 Phase 16 — secure admin access foundation: complete.
 Phase 17 — admin platform dashboard: complete.
+Phase 18 — admin user management: complete.
 
 The frontend supports creating, searching, filtering, favoriting, copying,
 editing, and deleting prompts. The UI is connected to the real API and includes
@@ -65,6 +66,12 @@ tests, recorded prompt copies, and recent activity. Active and new user counts
 use a rolling 30-day window. Usage totals reflect retained activity and saved
 test results; historical copy counts are available only for copies recorded
 since copy tracking was enabled.
+The admin Users area supports paginated account search, role/status filters,
+profile and recent activity review, prompt summaries, session invalidation,
+account status changes, role changes, and permanent deletion. Deactivated or
+suspended accounts cannot use authenticated APIs; status changes invalidate
+their sessions. The final admin account cannot be demoted or deleted, and admins
+cannot disable or delete their own account.
 Password recovery uses one-time tokens stored as hashes and expires after one
 hour. Reset request and submission routes are rate-limited. Recovery email is
 sent through Resend only after the sender domain is verified and the service is
@@ -101,10 +108,16 @@ The authenticated `PUT /api/auth/preferences` endpoint accepts
 Admin sign-in is available at `/admin` and uses `POST /api/admin/auth/login`.
 The protected `GET /api/admin/auth/me` and `POST /api/admin/auth/logout`
 endpoints verify and end admin sessions. Admin account bootstrap is described
-below; user and prompt management tools are separate follow-on work.
+below; prompt moderation and management tools are separate follow-on work.
 The admin-only `GET /api/admin/dashboard` endpoint provides current platform
 counts and the latest 12 activity records. Dashboard statistics refresh
 automatically once per minute.
+Admin user-management endpoints are rooted at
+`/api/admin/dashboard/users`: `GET` lists filtered users, `GET /:id` returns a
+sanitized profile with prompts and recent activity, `PATCH /:id/status` and
+`PATCH /:id/role` manage accounts, `POST /:id/reset-access` invalidates
+sessions, and `DELETE /:id` transactionally removes an account and its owned
+data.
 
 ## Run the frontend
 
