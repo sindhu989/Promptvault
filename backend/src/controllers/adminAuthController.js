@@ -9,13 +9,6 @@ const { setAdminCookie } = require('../utils/authCookie')
 
 const ADMIN_SESSION_DURATION_MS = 30 * 60 * 1000
 
-function matchesBootstrapSecret(suppliedSecret, configuredSecret) {
-  if (!suppliedSecret || !configuredSecret || configuredSecret.length < 32) return false
-  const supplied = Buffer.from(String(suppliedSecret))
-  const configured = Buffer.from(configuredSecret)
-  return supplied.length === configured.length && crypto.timingSafeEqual(supplied, configured)
-}
-
 function sanitizeAdmin(user) {
   return {
     id: String(user._id || user.id),
@@ -49,7 +42,8 @@ async function login(req, res, next) {
       if (
         !bootstrapEmail ||
         bootstrapEmail !== email ||
-        !matchesBootstrapSecret(req.body?.bootstrapSecret, process.env.ADMIN_BOOTSTRAP_SECRET)
+        !process.env.ADMIN_BOOTSTRAP_SECRET ||
+        process.env.ADMIN_BOOTSTRAP_SECRET.length < 32
       ) {
         return res.status(403).json({ message: 'This account is not authorized for admin access.' })
       }

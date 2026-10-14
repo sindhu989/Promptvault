@@ -182,10 +182,12 @@ ADMIN_BOOTSTRAP_SECRET=replace_with_a_private_random_secret_of_at_least_32_chara
 ```
 
 To bootstrap the first administrator, configure both `ADMIN_EMAIL` and a
-private, random `ADMIN_BOOTSTRAP_SECRET` of at least 32 characters in the backend environment. Register
-the account normally, then sign in at `/admin` with its email, password, and
-bootstrap key. The server promotes the account only after validating all three.
-Remove both bootstrap variables after promotion; the stored admin role remains.
+private, random `ADMIN_BOOTSTRAP_SECRET` of at least 32 characters in the backend
+environment. Register the account normally, then sign in at `/admin` with its
+email and password. The server promotes that account only when the email matches
+`ADMIN_EMAIL` and the server-side bootstrap secret is configured. The secret is
+never entered in the browser or sent by the frontend. Remove both bootstrap
+variables after promotion; the stored admin role remains.
 Admin roles must be provisioned by trusted database/environment operators and
 cannot be self-assigned through the public registration or profile APIs.
 

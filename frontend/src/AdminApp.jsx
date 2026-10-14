@@ -51,7 +51,6 @@ function AdminApp() {
   const [user, setUser] = useState(null)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [bootstrapSecret, setBootstrapSecret] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(hasSession)
@@ -477,14 +476,13 @@ function AdminApp() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, bootstrapSecret }),
+        body: JSON.stringify({ email, password }),
       })
       const data = await response.json()
       if (!response.ok) throw new Error(data.message || 'Admin sign-in failed.')
       setUser(data.user)
       setHasSession(true)
       setPassword('')
-      setBootstrapSecret('')
       setDashboard(null)
     } catch (loginError) {
       setError(loginError.message || 'Admin sign-in failed.')
@@ -1185,10 +1183,7 @@ function AdminApp() {
           <form className="admin-login" onSubmit={submitLogin}>
             <span className="admin-kicker">RESTRICTED AREA</span>
             <h1>Admin sign in</h1>
-            <p className="admin-description">
-              Use an authorized PromptVault account. First-time setup also requires the
-              bootstrap key configured by the server operator.
-            </p>
+            <p className="admin-description">Use your authorized PromptVault administrator account.</p>
             {message && <div className="admin-message" role="status">{message}</div>}
             {error && <div className="admin-error" role="alert">{error}</div>}
             <label>
@@ -1209,15 +1204,6 @@ function AdminApp() {
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 required
-              />
-            </label>
-            <label>
-              <span>Bootstrap key (first admin only)</span>
-              <input
-                type="password"
-                autoComplete="off"
-                value={bootstrapSecret}
-                onChange={(event) => setBootstrapSecret(event.target.value)}
               />
             </label>
             <button className="admin-primary-button" type="submit" disabled={pending}>

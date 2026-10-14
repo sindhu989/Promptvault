@@ -456,3 +456,57 @@ test('admin activity log is protected, searchable, filterable, and paginated', a
     }
   }
 })
+
+test('first admin bootstrap uses backend environment settings without a browser secret', async () => {
+  const bootstrapAdmin = {
+    id: 'security-bootstrap-admin',
+    name: 'Bootstrap Admin',
+    email: 'bootstrap-admin@example.test',
+    password: await bcrypt.hash('Correct Horse Battery12!', 10),
+    role: 'user',
+    authVersion: 0,
+  }
+  const previousEnvironment = {
+    email: process.env.ADMIN_EMAIL,
+    secret: process.env.ADMIN_BOOTSTRAP_SECRET,
+  }
+  const originalFsMethods = {
+    mkdirSync: fs.mkdirSync,
+    writeFileSync: fs.writeFileSync,
+    renameSync: fs.renameSync,
+  }
+  users.push(bootstrapAdmin)
+  process.env.ADMIN_EMAIL = bootstrapAdmin.email
+  process.env.ADMIN_BOOTSTRAP_SECRET = 'a-private-test-bootstrap-secret-value'
+  fs.mkdirSync = () => {}
+  fs.writeFileSync = () => {}
+  fs.renameSync = () => {}
+
+  try {
+    const response = await fetch(`${baseUrl}/api/admin/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: bootstrapAdmin.email, password: 'Correct Horse Battery12!' }),
+    })
+    const body = await response.json()
+    assert.equal(response.status, 200)
+    assert.equal(bootstrapAdmin.role, 'admin')
+    assert.equal(body.user.role, 'admin')
+    assert.match(response.headers.get('set-cookie'), /HttpOnly/i)
+  } finally {
+    fs.mkdirSync = originalFsMethods.mkdirSync
+    fs.writeFileSync = originalFsMethods.writeFileSync
+    fs.renameSync = originalFsMethods.renameSync
+    if (previousEnvironment.email === undefined) delete process.env.ADMIN_EMAIL
+    else process.env.ADMIN_EMAIL = previousEnvironment.email
+    if (previousEnvironment.secret === undefined) delete process.env.ADMIN_BOOTSTRAP_SECRET
+    else process.env.ADMIN_BOOTSTRAP_SECRET = previousEnvironment.secret
+    const index = users.indexOf(bootstrapAdmin)
+    if (index >= 0) users.splice(index, 1)
+    const sessions = adminSessions.filter((session) => session.userId === bootstrapAdmin.id)
+    for (const session of sessions) {
+      const sessionIndex = adminSessions.indexOf(session)
+      if (sessionIndex >= 0) adminSessions.splice(sessionIndex, 1)
+    }
+  }
+})
