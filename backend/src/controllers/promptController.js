@@ -264,6 +264,79 @@ async function getPublicPrompt(req, res) {
   })
 }
 
+async function listFeaturedPublicPrompts(req, res) {
+  const page = Number.parseInt(req.query.page || '1', 10)
+  const pageSize = 24
+  const search = String(req.query.search || '').trim().slice(0, 100)
+  const category = String(req.query.category || '').trim().slice(0, 80)
+  if (!Number.isInteger(page) || page < 1 || page > 10000) {
+    return res.status(400).json({ message: 'Page number is invalid.' })
+  }
+
+  if (isMongoConnected()) {
+    const conditions = [
+      { isPublic: true },
+      { featured: true },
+      { archived: { $ne: true } },
+      { $or: [{ moderationStatus: 'approved' }, { moderationStatus: { $exists: false } }] },
+    ]
+    if (category) conditions.push({ category })
+    if (search) {
+      const safeSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const pattern = new RegExp(safeSearch, 'i')
+      conditions.push({ $or: [{ title: pattern }, { description: pattern }, { content: pattern }, { category: pattern }, { tags: pattern }] })
+    }
+    const filter = { $and: conditions }
+    const [total, featuredPrompts, categories] = await Promise.all([
+      Prompt.countDocuments(filter),
+      Prompt.find(filter).sort({ updatedAt: -1, _id: -1 }).skip((page - 1) * pageSize).limit(pageSize)
+        .select('-_id title description content category tags updatedAt').lean(),
+      Prompt.distinct('category', {
+        isPublic: true,
+        featured: true,
+        archived: { $ne: true },
+        $or: [{ moderationStatus: 'approved' }, { moderationStatus: { $exists: false } }],
+      }),
+    ])
+    return res.json({
+      prompts: featuredPrompts,
+      categories: categories.sort((first, second) => first.localeCompare(second)),
+      pagination: { page, pageSize, total, pages: Math.ceil(total / pageSize) },
+    })
+  }
+
+  const publiclyAvailable = prompts.filter((prompt) =>
+    prompt.isPublic &&
+    prompt.featured &&
+    !prompt.archived &&
+    (!prompt.moderationStatus || prompt.moderationStatus === 'approved'),
+  )
+  const availableCategories = [...new Set(publiclyAvailable.map((prompt) => prompt.category))]
+    .sort((first, second) => first.localeCompare(second))
+  const normalizedSearch = search.toLowerCase()
+  const matchingPrompts = publiclyAvailable.filter((prompt) => {
+    if (category && prompt.category !== category) return false
+    if (!normalizedSearch) return true
+    return [prompt.title, prompt.description, prompt.content, prompt.category, ...(prompt.tags || [])]
+      .some((value) => String(value || '').toLowerCase().includes(normalizedSearch))
+  }).sort((first, second) => new Date(second.updatedAt) - new Date(first.updatedAt))
+  const total = matchingPrompts.length
+  const start = (page - 1) * pageSize
+  const publicPromptFields = (prompt) => ({
+    title: prompt.title,
+    description: prompt.description || '',
+    content: prompt.content,
+    category: prompt.category,
+    tags: prompt.tags || [],
+    updatedAt: prompt.updatedAt,
+  })
+  return res.json({
+    prompts: matchingPrompts.slice(start, start + pageSize).map(publicPromptFields),
+    categories: availableCategories,
+    pagination: { page, pageSize, total, pages: Math.ceil(total / pageSize) },
+  })
+}
+
 async function setPromptVisibility(req, res) {
   const prompt = await findOwnedPrompt(req.params.id, req.user.id)
   if (!prompt) {
@@ -634,6 +707,7 @@ module.exports = {
   createPrompt,
   updatePrompt,
   getPublicPrompt,
+  listFeaturedPublicPrompts,
   setPromptVisibility,
   getPromptVersions,
   restorePromptVersion,

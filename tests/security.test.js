@@ -510,3 +510,73 @@ test('first admin bootstrap uses backend environment settings without a browser 
     }
   }
 })
+
+test('featured public prompt directory only returns approved shared featured prompts', async () => {
+  const featuredPrompt = {
+    id: 'security-public-featured-prompt',
+    userId: 'directory-owner',
+    title: 'Featured public prompt',
+    description: 'A searchable description',
+    content: 'Write about public libraries',
+    category: 'Writing',
+    tags: ['community'],
+    isPublic: true,
+    featured: true,
+    moderationStatus: 'approved',
+    archived: false,
+    shareId: 'public-featured-share-id',
+    versionHistory: [{ content: 'private prior version' }],
+    testRuns: [{ output: 'private saved output' }],
+    updatedAt: new Date().toISOString(),
+  }
+  const pendingPrompt = {
+    ...featuredPrompt,
+    id: 'security-public-featured-pending',
+    title: 'Pending featured prompt',
+    moderationStatus: 'pending',
+    shareId: 'pending-featured-share-id',
+  }
+  const privatePrompt = {
+    ...featuredPrompt,
+    id: 'security-private-featured-prompt',
+    title: 'Private featured prompt',
+    isPublic: false,
+    shareId: undefined,
+  }
+  const unfeaturedPrompt = {
+    ...featuredPrompt,
+    id: 'security-public-unfeatured-prompt',
+    title: 'Public unfeatured prompt',
+    featured: false,
+    shareId: 'public-unfeatured-share-id',
+  }
+  const archivedPrompt = {
+    ...featuredPrompt,
+    id: 'security-public-archived-prompt',
+    title: 'Archived featured prompt',
+    archived: true,
+    shareId: 'public-archived-share-id',
+  }
+  const fixtures = [featuredPrompt, pendingPrompt, privatePrompt, unfeaturedPrompt, archivedPrompt]
+  prompts.push(...fixtures)
+
+  try {
+    const response = await fetch(`${baseUrl}/api/public/prompts/featured?search=public%20libraries&category=Writing`)
+    assert.equal(response.status, 200)
+    const body = await response.json()
+    assert.equal(body.pagination.total, 1)
+    assert.deepEqual(body.prompts.map((prompt) => prompt.title), ['Featured public prompt'])
+    assert.deepEqual(body.categories, ['Writing'])
+    assert.equal(body.prompts[0].shareId, undefined)
+    assert.equal(body.prompts[0].versionHistory, undefined)
+    assert.equal(body.prompts[0].testRuns, undefined)
+
+    const invalidPageResponse = await fetch(`${baseUrl}/api/public/prompts/featured?page=0`)
+    assert.equal(invalidPageResponse.status, 400)
+  } finally {
+    for (const fixture of fixtures) {
+      const index = prompts.indexOf(fixture)
+      if (index >= 0) prompts.splice(index, 1)
+    }
+  }
+})

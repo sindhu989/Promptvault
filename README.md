@@ -32,6 +32,7 @@ Phase 18 — admin user management: complete.
 Phase 19 — admin prompt management and public-content moderation: complete.
 Phase 20 — admin collection management: complete.
 Phase 21 — admin platform activity history: complete.
+Phase 22 — featured public prompt discovery: complete.
 
 The frontend supports creating, searching, filtering, favoriting, copying,
 editing, and deleting prompts. The UI is connected to the real API and includes
@@ -84,6 +85,10 @@ shared prompts. Newly shared prompts require admin approval before they appear
 publicly, while existing links with no moderation state remain available.
 Every admin prompt action is recorded in the owner's activity history. Prompt
 management responses omit saved test outputs and private version snapshots.
+The public `/discover` page lists featured community prompts and supports
+search, category filtering, pagination, and copying. It is linked from both the
+sign-in screen and signed-in library navigation. Only public, featured,
+unarchived prompts approved for sharing appear in discovery.
 The admin Collections area supports paginated search and visibility filters,
 sanitized collection and included-prompt review, editing names and descriptions,
 changing sharing visibility, and confirmed permanent deletion. Changing a
@@ -117,6 +122,10 @@ Public read-only data is available at
 `/api/public/prompts/:shareId` and `/api/public/collections/:shareId`.
 The frontend renders share links at `/share/prompt/:shareId` and
 `/share/collection/:shareId`.
+Featured public prompt discovery is available at `/discover` and
+`GET /api/public/prompts/featured`, with optional `page`, `search`, and
+`category` filters. The endpoint returns only approved, public, featured, and
+unarchived prompt fields; saved tests and version history are never included.
 Authenticated data export and import are available at `GET /api/export?format=json|csv|md|txt`
 and `POST /api/import`. The import request includes `format`, `filename`, and
 the file's text in `content`. JSON accepts either a prompt array or a PromptVault

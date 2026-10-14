@@ -105,13 +105,14 @@ function App() {
   const [transferringData, setTransferringData] = useState(false)
   const importInputRef = useRef(null)
   const sharedRoute = window.location.pathname.match(/^\/share\/(prompt|collection)\/([^/]+)$/)
+  const featuredRoute = window.location.pathname === '/discover'
 
   useEffect(() => {
     try {
       window.localStorage.removeItem(legacyTokenKey)
     } catch {}
 
-    if (/^\/share\/(prompt|collection)\/[^/]+$/.test(window.location.pathname)) return undefined
+    if (/^\/share\/(prompt|collection)\/[^/]+$/.test(window.location.pathname) || featuredRoute) return undefined
 
     let active = true
     async function restoreSession() {
@@ -143,7 +144,7 @@ function App() {
     return () => {
       active = false
     }
-  }, [])
+  }, [featuredRoute])
 
   useEffect(() => {
     document.documentElement.dataset.theme = user?.theme === 'dark' ? 'dark' : 'light'
@@ -863,6 +864,8 @@ function App() {
     return <SharedPage type={sharedRoute[1]} shareId={sharedRoute[2]} />
   }
 
+  if (featuredRoute) return <FeaturedPromptsPage />
+
   if (!sessionChecked) {
     return (
       <div className="auth-shell">
@@ -1028,6 +1031,9 @@ function App() {
               Back to log in
             </button>
           )}
+          {(authMode === 'login' || authMode === 'register') && (
+            <a className="auth-link" href="/discover">Explore featured prompts</a>
+          )}
         </div>
       </div>
     )
@@ -1074,6 +1080,11 @@ function App() {
             <span className="nav-icon" aria-hidden="true">◷</span>
             <span>Activity</span>
           </button>
+          <a className="nav-item featured-nav-link" href="/discover">
+            <span className="nav-icon" aria-hidden="true">✦</span>
+            <span>Featured prompts</span>
+            <span className="nav-external" aria-hidden="true">↗</span>
+          </a>
         </nav>
 
         <div className="category-heading">
@@ -2332,6 +2343,139 @@ function SharedPage({ type, shareId }) {
               )}
             </div>
           </>
+        )}
+      </section>
+    </main>
+  )
+}
+
+function FeaturedPromptsPage() {
+  const [prompts, setPrompts] = useState([])
+  const [categories, setCategories] = useState([])
+  const [search, setSearch] = useState('')
+  const [category, setCategory] = useState('')
+  const [page, setPage] = useState(1)
+  const [pagination, setPagination] = useState({ page: 1, pages: 0, total: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+
+  useEffect(() => {
+    let active = true
+    const params = new URLSearchParams({ page: String(page), search, category })
+    const debounce = window.setTimeout(async () => {
+      setLoading(true)
+      setError('')
+      try {
+        const response = await fetch(`${API_URL}/api/public/prompts/featured?${params}`)
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.message || 'Could not load featured prompts.')
+        if (active) {
+          setPrompts(data.prompts || [])
+          setCategories(data.categories || [])
+          setPagination(data.pagination || { page: 1, pages: 0, total: 0 })
+        }
+      } catch (loadError) {
+        if (active) setError(loadError.message || 'Could not load featured prompts.')
+      } finally {
+        if (active) setLoading(false)
+      }
+    }, 180)
+    return () => {
+      active = false
+      window.clearTimeout(debounce)
+    }
+  }, [page, search, category])
+
+  async function copyPrompt(content) {
+    try {
+      await navigator.clipboard.writeText(content)
+      setNotice('Prompt copied to clipboard.')
+    } catch {
+      setError('Clipboard access failed. Select and copy the prompt text manually.')
+    }
+  }
+
+  return (
+    <main className="featured-page">
+      <header className="featured-header">
+        <a className="brand" href="/">
+          <span className="brand-mark" aria-hidden="true">P</span>
+          <span>prompt<span className="brand-light">vault</span></span>
+        </a>
+        <div className="featured-header-actions">
+          <span className="read-only-badge">Community prompts</span>
+          <a className="primary-button featured-login-link" href="/">Log in</a>
+        </div>
+      </header>
+      <section className="featured-content">
+        <div className="featured-intro">
+          <p className="eyebrow">PROMPTVAULT COMMUNITY</p>
+          <h1>Featured prompts</h1>
+          <p>Browse useful prompts selected by the PromptVault team. Only approved prompts shared publicly by their owners appear here.</p>
+        </div>
+        <form className="featured-toolbar" onSubmit={(event) => event.preventDefault()}>
+          <label className="featured-search">
+            <span className="visually-hidden">Search featured prompts</span>
+            <input
+              value={search}
+              onChange={(event) => { setSearch(event.target.value); setPage(1) }}
+              maxLength={100}
+              placeholder="Search prompts, topics, or tags"
+            />
+          </label>
+          <label>
+            <span className="visually-hidden">Filter by category</span>
+            <select value={category} onChange={(event) => { setCategory(event.target.value); setPage(1) }}>
+              <option value="">All categories</option>
+              {categories.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+        </form>
+        {notice && <div className="auth-message featured-notice" role="status">{notice}</div>}
+        {error && <div className="inline-error" role="alert">{error}</div>}
+        {loading ? (
+          <p className="loading-state" role="status">Loading featured prompts...</p>
+        ) : prompts.length ? (
+          <div className="featured-grid">
+            {prompts.map((prompt, index) => (
+              <article className="featured-card" key={`${prompt.title}-${index}`}>
+                <div className="featured-card-heading">
+                  <div>
+                    <span className="featured-category">{prompt.category}</span>
+                    <h2>{prompt.title}</h2>
+                  </div>
+                  <span className="featured-star" aria-label="Featured">★</span>
+                </div>
+                {prompt.description && <p className="featured-description">{prompt.description}</p>}
+                <pre>{prompt.content}</pre>
+                {prompt.tags?.length > 0 && (
+                  <div className="featured-tags">
+                    {prompt.tags.map((tag) => <span className="tag" key={tag}>{tag}</span>)}
+                  </div>
+                )}
+                <footer>
+                  <span>{prompt.updatedAt ? `Updated ${formatDate(prompt.updatedAt)}` : ''}</span>
+                  <button className="secondary-button" type="button" onClick={() => copyPrompt(prompt.content)}>Copy prompt</button>
+                </footer>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state featured-empty">
+            <span className="empty-icon" aria-hidden="true">✦</span>
+            <h2>{search || category ? 'No matching featured prompts' : 'No featured prompts yet'}</h2>
+            <p>{search || category ? 'Try changing your search or category filter.' : 'Check back later for prompts curated by the PromptVault team.'}</p>
+          </div>
+        )}
+        {pagination.pages > 1 && (
+          <footer className="featured-pagination">
+            <span>{pagination.total} prompts · Page {pagination.page} of {pagination.pages}</span>
+            <div>
+              <button className="secondary-button" type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page <= 1 || loading}>Previous</button>
+              <button className="secondary-button" type="button" onClick={() => setPage((current) => Math.min(pagination.pages, current + 1))} disabled={page >= pagination.pages || loading}>Next</button>
+            </div>
+          </footer>
         )}
       </section>
     </main>
