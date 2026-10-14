@@ -227,6 +227,9 @@ deployed frontend calls the API on the same origin.
 6. Create an account and test prompt creation, refresh, and sign-in again to
    confirm data persists in MongoDB.
 
+The health endpoint returns HTTP 503 with `"status":"error"` and
+`"mode":"disconnected"` if a configured MongoDB connection is unavailable,
+allowing the deployment platform to detect database outages.
 Production startup intentionally fails if `MONGODB_URI` is missing or
 `JWT_SECRET` is shorter than 32 characters. Do not use the local JSON store for
 a deployment: it is single-process development storage and may not persist

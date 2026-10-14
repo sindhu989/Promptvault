@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict')
 const bcrypt = require('../backend/node_modules/bcryptjs')
 const fs = require('node:fs')
+const mongoose = require('../backend/node_modules/mongoose')
 const { after, before, test } = require('node:test')
 const app = require('../backend/src/app')
 const { activities, adminSessions, collections, prompts, users } = require('../backend/src/data/store')
@@ -50,6 +51,30 @@ test('security headers are enabled for the API', async () => {
   assert.equal(response.status, 200)
   assert.equal(response.headers.get('x-content-type-options'), 'nosniff')
   assert.ok(response.headers.get('content-security-policy'))
+})
+
+test('health check reports MongoDB outages as unavailable', async () => {
+  const previousMongoUri = process.env.MONGODB_URI
+  const previousReadyState = mongoose.connection.readyState
+  process.env.MONGODB_URI = 'mongodb://health-check.invalid/promptvault'
+  mongoose.connection.readyState = 0
+
+  try {
+    const response = await fetch(`${baseUrl}/api/health`)
+    assert.equal(response.status, 503)
+    assert.deepEqual(await response.json(), {
+      status: 'error',
+      message: 'PromptVault database is unavailable.',
+      mode: 'disconnected',
+    })
+  } finally {
+    mongoose.connection.readyState = previousReadyState
+    if (previousMongoUri === undefined) {
+      delete process.env.MONGODB_URI
+    } else {
+      process.env.MONGODB_URI = previousMongoUri
+    }
+  }
 })
 
 test('protected routes reject requests without a session cookie', async () => {

@@ -73,15 +73,19 @@ app.get('/', (req, res) => {
 })
 
 app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    message: 'PromptVault API is running.',
-    mode:
-      process.env.MONGODB_URI
-        ? mongoose.connection.readyState === 1
-          ? 'mongodb'
-          : 'disconnected'
-        : 'local-file',
+  const databaseConnected = mongoose.connection.readyState === 1
+  const mode = process.env.MONGODB_URI
+    ? databaseConnected
+      ? 'mongodb'
+      : 'disconnected'
+    : 'local-file'
+
+  res.status(mode === 'disconnected' ? 503 : 200).json({
+    status: mode === 'disconnected' ? 'error' : 'ok',
+    message: mode === 'disconnected'
+      ? 'PromptVault database is unavailable.'
+      : 'PromptVault API is running.',
+    mode,
   })
 })
 
