@@ -290,40 +290,69 @@ async function requestPasswordReset(req, res) {
 }
 
 async function resetPassword(req, res) {
-  const token = String(req.body?.token || '')
-  const newPassword = String(req.body?.newPassword || '')
-  if (!token || !newPassword) {
+  const token = req.body?.token
+  const newPassword = req.body?.newPassword
+  if (
+    typeof token !== 'string' ||
+    !/^[a-f0-9]{64}$/i.test(token) ||
+    typeof newPassword !== 'string' ||
+    !newPassword
+  ) {
     return res.status(400).json({ message: 'Reset token and new password are required.' })
   }
   const passwordError = getPasswordError(newPassword, 'New password')
   if (passwordError) return res.status(400).json({ message: passwordError })
 
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex')
-  const now = new Date()
-  const user = isMongoConnected()
-    ? await User.findOne({
+  const mongoConnected = isMongoConnected()
+  let user
+  if (mongoConnected) {
+    const resetTokenOwner = await User.findOne({
         passwordResetToken: tokenHash,
-        passwordResetExpires: { $gt: now },
-      })
-    : users.find(
-        (item) =>
-          item.passwordResetToken === tokenHash &&
-          new Date(item.passwordResetExpires) > now,
-      )
+        passwordResetExpires: { $gt: new Date() },
+      }).select('_id').lean()
+    if (!resetTokenOwner) {
+      return res.status(400).json({ message: 'This password reset link is invalid or has expired.' })
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10)
+    user = await User.findOneAndUpdate(
+      {
+        _id: resetTokenOwner._id,
+        passwordResetToken: tokenHash,
+        passwordResetExpires: { $gt: new Date() },
+      },
+      {
+        $set: { password: passwordHash },
+        $unset: { passwordResetToken: 1, passwordResetExpires: 1 },
+        $inc: { authVersion: 1 },
+      },
+      { new: true, runValidators: true },
+    ).lean()
+  } else {
+    const tokenIsValid = (item) =>
+      item.passwordResetToken === tokenHash &&
+      new Date(item.passwordResetExpires) > new Date()
+    const resetTokenOwner = users.find(tokenIsValid)
+    if (!resetTokenOwner) {
+      return res.status(400).json({ message: 'This password reset link is invalid or has expired.' })
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10)
+    user = users.find((item) => item.id === resetTokenOwner.id && tokenIsValid(item))
+    if (user) {
+      user.password = passwordHash
+      user.authVersion = (user.authVersion || 0) + 1
+      user.passwordResetToken = undefined
+      user.passwordResetExpires = undefined
+    }
+  }
 
   if (!user) {
     return res.status(400).json({ message: 'This password reset link is invalid or has expired.' })
   }
 
-  user.password = await bcrypt.hash(newPassword, 10)
-  user.authVersion = (user.authVersion || 0) + 1
-  user.passwordResetToken = undefined
-  user.passwordResetExpires = undefined
-  if (isMongoConnected()) {
-    await user.save()
-  } else {
-    save()
-  }
+  if (!mongoConnected) save()
 
   clearUserCookie(res)
   return res.json({ message: 'Password reset successfully. You can now log in.' })

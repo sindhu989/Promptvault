@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict')
 const bcrypt = require('../backend/node_modules/bcryptjs')
+const crypto = require('node:crypto')
 const fs = require('node:fs')
 const mongoose = require('../backend/node_modules/mongoose')
 const { after, before, test } = require('node:test')
@@ -195,6 +196,46 @@ test('user login returns the same credential error for unknown users and wrong p
       body: JSON.stringify({ email: user.email, password: 'x'.repeat(73) }),
     })
     assert.equal(oversizedPasswordResponse.status, 400)
+  } finally {
+    users.splice(users.indexOf(user), 1)
+  }
+})
+
+test('password reset tokens can only be consumed once during concurrent requests', async () => {
+  const token = crypto.randomBytes(32).toString('hex')
+  const user = {
+    id: 'security-reset-token-user',
+    name: 'Reset Token Test',
+    email: 'reset-token@example.com',
+    password: await bcrypt.hash('Original Password 123!', 10),
+    passwordResetToken: crypto.createHash('sha256').update(token).digest('hex'),
+    passwordResetExpires: new Date(Date.now() + 60_000).toISOString(),
+    authVersion: 0,
+    role: 'user',
+    status: 'active',
+  }
+  users.push(user)
+
+  try {
+    const requests = ['First New Password 123!', 'Second New Password 123!'].map((newPassword) =>
+      fetch(`${baseUrl}/api/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, newPassword }),
+      }),
+    )
+    const responses = await Promise.all(requests)
+    assert.deepEqual(responses.map((response) => response.status).sort(), [200, 400])
+    assert.equal(user.authVersion, 1)
+    assert.equal(user.passwordResetToken, undefined)
+    assert.equal(user.passwordResetExpires, undefined)
+
+    const replayResponse = await fetch(`${baseUrl}/api/auth/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, newPassword: 'Third New Password 123!' }),
+    })
+    assert.equal(replayResponse.status, 400)
   } finally {
     users.splice(users.indexOf(user), 1)
   }

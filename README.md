@@ -105,9 +105,10 @@ across event metadata and account name/email, entity and action filters, and an
 inclusive date range. Responses include only account name/email and event
 metadata; passwords and internal entity/user IDs are excluded.
 Password recovery uses one-time tokens stored as hashes and expires after one
-hour. Reset request and submission routes are rate-limited. Recovery email is
-sent through Resend only after the sender domain is verified and the service is
-configured.
+hour. Token consumption is atomic, so concurrent reset requests cannot reuse
+the same link. Reset request and submission routes are rate-limited. Recovery
+email is sent through Resend only after the sender domain is verified and the
+service is configured.
 
 The backend includes Express routes, HTTP-only cookie authentication, and prompt
 CRUD operations. It supports a real MongoDB connection when `MONGODB_URI` is set.
