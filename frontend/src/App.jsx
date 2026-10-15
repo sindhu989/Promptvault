@@ -62,7 +62,9 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [sessionChecked, setSessionChecked] = useState(false)
   const [resetToken, setResetToken] = useState(() =>
-    new URLSearchParams(window.location.search).get('resetToken') || '',
+    new URLSearchParams(window.location.hash.slice(1)).get('resetToken') ||
+    new URLSearchParams(window.location.search).get('resetToken') ||
+    '',
   )
   const [authMode, setAuthMode] = useState(() => resetToken ? 'reset' : 'login')
   const [authMessage, setAuthMessage] = useState('')
@@ -111,6 +113,9 @@ function App() {
     if (!resetToken) return
     const resetUrl = new URL(window.location.href)
     resetUrl.searchParams.delete('resetToken')
+    const hashParams = new URLSearchParams(resetUrl.hash.slice(1))
+    hashParams.delete('resetToken')
+    resetUrl.hash = hashParams.toString()
     window.history.replaceState(
       window.history.state,
       '',

@@ -272,7 +272,7 @@ async function requestPasswordReset(req, res) {
     if (process.env.NODE_ENV === 'production' && resetUrl.protocol !== 'https:') {
       throw new Error('APP_URL must use HTTPS in production.')
     }
-    resetUrl.searchParams.set('resetToken', rawToken)
+    resetUrl.hash = new URLSearchParams({ resetToken: rawToken }).toString()
     await sendPasswordResetEmail(user.email, user.name, resetUrl.toString())
   } catch (error) {
     user.passwordResetToken = undefined

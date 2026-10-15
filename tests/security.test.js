@@ -242,6 +242,69 @@ test('password reset tokens can only be consumed once during concurrent requests
   }
 })
 
+test('password reset links put the token in the URL fragment, not the query', async () => {
+  const user = {
+    id: 'security-reset-link-user',
+    name: 'Reset Link Test',
+    email: 'reset-link@example.com',
+    password: await bcrypt.hash('Original Password 123!', 10),
+    role: 'user',
+    status: 'active',
+  }
+  const previousEnvironment = {
+    appUrl: process.env.APP_URL,
+    resendApiKey: process.env.RESEND_API_KEY,
+    resendFrom: process.env.RESEND_FROM,
+  }
+  const originalFetch = global.fetch
+  const originalFsMethods = {
+    mkdirSync: fs.mkdirSync,
+    writeFileSync: fs.writeFileSync,
+    renameSync: fs.renameSync,
+  }
+  let emailPayload
+  users.push(user)
+  process.env.APP_URL = 'https://promptvault.example'
+  process.env.RESEND_API_KEY = 'test-resend-api-key'
+  process.env.RESEND_FROM = 'PromptVault <test@example.com>'
+  fs.mkdirSync = () => {}
+  fs.writeFileSync = () => {}
+  fs.renameSync = () => {}
+  global.fetch = async (url, options) => {
+    assert.equal(url, 'https://api.resend.com/emails')
+    emailPayload = JSON.parse(options.body)
+    return { ok: true }
+  }
+
+  try {
+    const response = await originalFetch(`${baseUrl}/api/auth/forgot-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: user.email }),
+    })
+    assert.equal(response.status, 200)
+    const url = new URL(emailPayload.text.match(/https:\/\/\S+/)[0])
+    assert.equal(url.origin, 'https://promptvault.example')
+    assert.equal(url.searchParams.has('resetToken'), false)
+    assert.match(url.hash, /^#resetToken=[a-f0-9]{64}$/)
+  } finally {
+    global.fetch = originalFetch
+    fs.mkdirSync = originalFsMethods.mkdirSync
+    fs.writeFileSync = originalFsMethods.writeFileSync
+    fs.renameSync = originalFsMethods.renameSync
+    for (const [key, value] of [
+      ['APP_URL', previousEnvironment.appUrl],
+      ['RESEND_API_KEY', previousEnvironment.resendApiKey],
+      ['RESEND_FROM', previousEnvironment.resendFrom],
+    ]) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+    const index = users.indexOf(user)
+    if (index >= 0) users.splice(index, 1)
+  }
+})
+
 test('untrusted browser origins are rejected', async () => {
   const response = await fetch(`${baseUrl}/api/health`, {
     headers: { Origin: 'https://untrusted.example' },
