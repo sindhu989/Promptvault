@@ -45,6 +45,10 @@ app.use(helmet({
     },
   },
 }))
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store')
+  return next()
+})
 app.use(cors({
   origin: (origin, callback) => callback(null, !origin || allowedOrigins.has(origin)),
   credentials: true,

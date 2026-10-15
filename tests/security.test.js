@@ -53,6 +53,7 @@ test('security headers are enabled for the API', async () => {
   assert.equal(response.headers.get('x-content-type-options'), 'nosniff')
   assert.ok(response.headers.get('content-security-policy'))
   assert.equal(response.headers.get('referrer-policy'), 'no-referrer')
+  assert.equal(response.headers.get('cache-control'), 'no-store')
 })
 
 test('health check reports MongoDB outages as unavailable', async () => {
@@ -138,6 +139,7 @@ test('user login issues an HTTP-only cookie without returning its token', async 
     assert.equal(loginBody.user.passwordResetToken, undefined)
     assert.equal(loginBody.user.passwordResetExpires, undefined)
     assert.equal(loginBody.user.authVersion, undefined)
+    assert.equal(loginResponse.headers.get('cache-control'), 'no-store')
     assert.match(setCookie, /HttpOnly/i)
     assert.match(setCookie, /SameSite=Strict/i)
     assert.match(setCookie, /Path=\/api/i)
