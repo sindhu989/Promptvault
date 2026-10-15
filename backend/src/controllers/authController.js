@@ -255,7 +255,10 @@ async function requestPasswordReset(req, res) {
   user.passwordResetExpires = expiresAt
 
   if (isMongoConnected()) {
-    await user.save()
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { passwordResetToken: tokenHash, passwordResetExpires: expiresAt } },
+    )
   } else {
     user.passwordResetExpires = expiresAt.toISOString()
     save()
@@ -278,7 +281,10 @@ async function requestPasswordReset(req, res) {
     user.passwordResetToken = undefined
     user.passwordResetExpires = undefined
     if (isMongoConnected()) {
-      await user.save()
+      await User.updateOne(
+        { _id: user._id },
+        { $unset: { passwordResetToken: 1, passwordResetExpires: 1 } },
+      )
     } else {
       save()
     }

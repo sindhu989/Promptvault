@@ -7,6 +7,7 @@ const { after, before, test } = require('node:test')
 const app = require('../backend/src/app')
 const { activities, adminSessions, collections, prompts, users } = require('../backend/src/data/store')
 const Prompt = require('../backend/src/models/Prompt')
+const User = require('../backend/src/models/User')
 const {
   adminCookieName,
   setAdminCookie,
@@ -494,6 +495,73 @@ test('password reset links put the token in the URL fragment, not the query', as
     }
     const index = users.indexOf(user)
     if (index >= 0) users.splice(index, 1)
+  }
+})
+
+test('password reset requests persist tokens through MongoDB model updates', async () => {
+  const user = {
+    _id: 'security-mongo-reset-user',
+    name: 'Mongo Reset Test',
+    email: 'mongo-reset@example.com',
+  }
+  const previousEnvironment = {
+    appUrl: process.env.APP_URL,
+    mongoUri: process.env.MONGODB_URI,
+    resendApiKey: process.env.RESEND_API_KEY,
+    resendFrom: process.env.RESEND_FROM,
+  }
+  const previousReadyState = mongoose.connection.readyState
+  const originalFindOne = User.findOne
+  const originalUpdateOne = User.updateOne
+  const originalFetch = global.fetch
+  let emailPayload
+  const updates = []
+
+  process.env.APP_URL = 'https://promptvault.example'
+  process.env.MONGODB_URI = 'mongodb://unit-test.invalid/promptvault'
+  process.env.RESEND_API_KEY = 'test-resend-api-key'
+  process.env.RESEND_FROM = 'PromptVault <test@example.com>'
+  mongoose.connection.readyState = 1
+  User.findOne = () => ({ lean: async () => ({ ...user }) })
+  User.updateOne = async (filter, update) => {
+    updates.push({ filter, update })
+    return { matchedCount: 1 }
+  }
+  global.fetch = async (url, options) => {
+    assert.equal(url, 'https://api.resend.com/emails')
+    emailPayload = JSON.parse(options.body)
+    return { ok: true }
+  }
+
+  try {
+    const response = await originalFetch(`${baseUrl}/api/auth/forgot-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: user.email }),
+    })
+    assert.equal(response.status, 200)
+    assert.equal(updates.length, 1)
+    assert.deepEqual(updates[0].filter, { _id: user._id })
+    const storedToken = updates[0].update.$set.passwordResetToken
+    assert.match(storedToken, /^[a-f0-9]{64}$/)
+    assert.ok(updates[0].update.$set.passwordResetExpires instanceof Date)
+    const resetUrl = new URL(emailPayload.text.match(/https:\/\/\S+/)[0])
+    const rawToken = new URLSearchParams(resetUrl.hash.slice(1)).get('resetToken')
+    assert.equal(crypto.createHash('sha256').update(rawToken).digest('hex'), storedToken)
+  } finally {
+    User.findOne = originalFindOne
+    User.updateOne = originalUpdateOne
+    global.fetch = originalFetch
+    mongoose.connection.readyState = previousReadyState
+    for (const [key, value] of [
+      ['APP_URL', previousEnvironment.appUrl],
+      ['MONGODB_URI', previousEnvironment.mongoUri],
+      ['RESEND_API_KEY', previousEnvironment.resendApiKey],
+      ['RESEND_FROM', previousEnvironment.resendFrom],
+    ]) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
   }
 })
 
