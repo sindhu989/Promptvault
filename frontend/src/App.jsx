@@ -108,6 +108,17 @@ function App() {
   const featuredRoute = window.location.pathname === '/discover'
 
   useEffect(() => {
+    if (!resetToken) return
+    const resetUrl = new URL(window.location.href)
+    resetUrl.searchParams.delete('resetToken')
+    window.history.replaceState(
+      window.history.state,
+      '',
+      `${resetUrl.pathname}${resetUrl.search}${resetUrl.hash}`,
+    )
+  }, [resetToken])
+
+  useEffect(() => {
     try {
       window.localStorage.removeItem(legacyTokenKey)
     } catch {}
