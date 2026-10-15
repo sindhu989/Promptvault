@@ -1757,17 +1757,17 @@ function PromptDialog({ prompt, categories, saveError, onClose, onSave }) {
         <form onSubmit={handleSubmit}>
           <label className="form-field">
             <span>Title</span>
-            <input autoFocus required value={title} onChange={(event) => setTitle(event.target.value)} />
+            <input autoFocus required maxLength={160} value={title} onChange={(event) => setTitle(event.target.value)} />
           </label>
 
           <label className="form-field">
             <span>Short description</span>
-            <input value={description} onChange={(event) => setDescription(event.target.value)} />
+            <input maxLength={1000} value={description} onChange={(event) => setDescription(event.target.value)} />
           </label>
 
           <label className="form-field">
             <span>Prompt</span>
-            <textarea required rows={6} value={content} onChange={(event) => setContent(event.target.value)} />
+            <textarea required maxLength={50000} rows={6} value={content} onChange={(event) => setContent(event.target.value)} />
           </label>
 
           {prompt && (
@@ -1785,7 +1785,7 @@ function PromptDialog({ prompt, categories, saveError, onClose, onSave }) {
           <div className="form-row">
             <label className="form-field">
               <span>Category</span>
-              <input list="prompt-categories" value={category} onChange={(event) => setCategory(event.target.value)} />
+              <input list="prompt-categories" maxLength={80} value={category} onChange={(event) => setCategory(event.target.value)} />
               <datalist id="prompt-categories">
                 {categories.map((item) => (
                   <option key={item} value={item} />
@@ -1795,7 +1795,7 @@ function PromptDialog({ prompt, categories, saveError, onClose, onSave }) {
 
             <label className="form-field">
               <span>Tags</span>
-              <input value={tags} onChange={(event) => setTags(event.target.value)} />
+              <input maxLength={819} value={tags} onChange={(event) => setTags(event.target.value)} />
             </label>
           </div>
 

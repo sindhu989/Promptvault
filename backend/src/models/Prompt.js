@@ -3,12 +3,18 @@ const mongoose = require('mongoose')
 const promptVersionSchema = new mongoose.Schema(
   {
     version: { type: Number, required: true },
-    title: { type: String, required: true },
-    description: { type: String, default: '' },
-    content: { type: String, required: true },
-    category: { type: String, required: true },
-    tags: [{ type: String }],
-    changeNotes: { type: String, default: '' },
+    title: { type: String, required: true, maxlength: 160 },
+    description: { type: String, default: '', maxlength: 1000 },
+    content: { type: String, required: true, maxlength: 50000 },
+    category: { type: String, required: true, maxlength: 80 },
+    tags: {
+      type: [{ type: String, maxlength: 40 }],
+      validate: {
+        validator: (tags) => !tags || tags.length <= 20,
+        message: 'No more than 20 tags are allowed.',
+      },
+    },
+    changeNotes: { type: String, default: '', maxlength: 300 },
     creatorId: { type: String, required: true },
     createdAt: { type: Date, default: Date.now },
   },
@@ -28,11 +34,17 @@ const promptTestRunSchema = new mongoose.Schema(
 
 const promptSchema = new mongoose.Schema(
   {
-    title: { type: String, required: true, trim: true },
-    description: { type: String, default: '' },
-    content: { type: String, required: true },
-    category: { type: String, required: true },
-    tags: [{ type: String }],
+    title: { type: String, required: true, trim: true, maxlength: 160 },
+    description: { type: String, default: '', maxlength: 1000 },
+    content: { type: String, required: true, maxlength: 50000 },
+    category: { type: String, required: true, maxlength: 80 },
+    tags: {
+      type: [{ type: String, maxlength: 40 }],
+      validate: {
+        validator: (tags) => !tags || tags.length <= 20,
+        message: 'No more than 20 tags are allowed.',
+      },
+    },
     favorite: { type: Boolean, default: false },
     archived: { type: Boolean, default: false },
     isPublic: { type: Boolean, default: false },

@@ -6,6 +6,7 @@ const mongoose = require('../backend/node_modules/mongoose')
 const { after, before, test } = require('node:test')
 const app = require('../backend/src/app')
 const { activities, adminSessions, collections, prompts, users } = require('../backend/src/data/store')
+const Prompt = require('../backend/src/models/Prompt')
 const {
   adminCookieName,
   setAdminCookie,
@@ -271,6 +272,125 @@ test('admin login does not reveal existing non-admin or inactive accounts', asyn
     else process.env.ADMIN_EMAIL = previousBootstrapEmail
     if (previousBootstrapSecret === undefined) delete process.env.ADMIN_BOOTSTRAP_SECRET
     else process.env.ADMIN_BOOTSTRAP_SECRET = previousBootstrapSecret
+  }
+})
+
+test('prompt create and update reject malformed or oversized fields', async () => {
+  const owner = {
+    id: 'security-prompt-validation-user',
+    name: 'Prompt Validation',
+    email: 'prompt-validation@example.com',
+    role: 'user',
+    status: 'active',
+    authVersion: 0,
+  }
+  const prompt = {
+    id: 'security-prompt-validation-existing',
+    userId: owner.id,
+    title: 'Valid title',
+    description: '',
+    content: 'Valid prompt',
+    category: 'Writing',
+    tags: [],
+    favorite: false,
+    archived: false,
+    isPublic: false,
+    versionHistory: [],
+  }
+  const originalFsMethods = {
+    mkdirSync: fs.mkdirSync,
+    writeFileSync: fs.writeFileSync,
+    renameSync: fs.renameSync,
+  }
+  const activitySnapshot = [...activities]
+  users.push(owner)
+  prompts.push(prompt)
+  fs.mkdirSync = () => {}
+  fs.writeFileSync = () => {}
+  fs.renameSync = () => {}
+  let createdPromptId
+  const cookie = `${userCookieName}=${signToken(owner.id, 0)}`
+  const send = (route, method, body) =>
+    fetch(`${baseUrl}${route}`, {
+      method,
+      headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+  try {
+    const malformedTitleResponse = await send('/api/prompts', 'POST', {
+      title: { value: 'Not text' },
+      content: 'Valid prompt',
+      category: 'Writing',
+    })
+    assert.equal(malformedTitleResponse.status, 400)
+
+    const longTitleResponse = await send('/api/prompts', 'POST', {
+      title: 'x'.repeat(161),
+      content: 'Valid prompt',
+      category: 'Writing',
+    })
+    assert.equal(longTitleResponse.status, 400)
+
+    const tooManyTagsResponse = await send('/api/prompts', 'POST', {
+      title: 'Valid title',
+      content: 'Valid prompt',
+      category: 'Writing',
+      tags: Array.from({ length: 21 }, (_, index) => `tag-${index}`),
+    })
+    assert.equal(tooManyTagsResponse.status, 400)
+
+    const validCreateResponse = await send('/api/prompts', 'POST', {
+      title: 'Created title',
+      description: 'A valid prompt description',
+      content: 'A valid prompt',
+      category: 'Writing',
+      tags: ['writing', 'assistant'],
+    })
+    assert.equal(validCreateResponse.status, 201)
+    const createdPrompt = (await validCreateResponse.json()).prompt
+    createdPromptId = createdPrompt.id
+    assert.equal(createdPrompt.title, 'Created title')
+    assert.deepEqual(createdPrompt.tags, ['writing', 'assistant'])
+
+    const badUpdateResponse = await send(`/api/prompts/${prompt.id}`, 'PUT', {
+      content: 5,
+    })
+    assert.equal(badUpdateResponse.status, 400)
+
+    const longContentResponse = await send(`/api/prompts/${prompt.id}`, 'PUT', {
+      content: 'x'.repeat(50001),
+    })
+    assert.equal(longContentResponse.status, 400)
+
+    const goodUpdateResponse = await send(`/api/prompts/${prompt.id}`, 'PUT', {
+      title: 'Updated title',
+    })
+    assert.equal(goodUpdateResponse.status, 200)
+    assert.equal(prompt.title, 'Updated title')
+
+    const invalidSchemaPrompt = new Prompt({
+      userId: owner.id,
+      title: 'Schema validation',
+      content: 'Valid prompt',
+      category: 'Writing',
+      tags: Array.from({ length: 21 }, (_, index) => `tag-${index}`),
+    })
+    await assert.rejects(invalidSchemaPrompt.validate(), /No more than 20 tags/)
+  } finally {
+    fs.mkdirSync = originalFsMethods.mkdirSync
+    fs.writeFileSync = originalFsMethods.writeFileSync
+    fs.renameSync = originalFsMethods.renameSync
+    for (const [list, items] of [
+      [users, [owner]],
+      [prompts, [prompt, ...prompts.filter((item) => item.id === createdPromptId)]],
+    ]) {
+      for (const item of items) {
+        const index = list.indexOf(item)
+        if (index >= 0) list.splice(index, 1)
+      }
+    }
+    activities.splice(0, activities.length, ...activitySnapshot)
   }
 })
 

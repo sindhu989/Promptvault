@@ -5,6 +5,15 @@ const Prompt = require('../models/Prompt')
 const { extractVariables, renderPrompt } = require('../services/promptTester')
 const { recordActivity } = require('../services/activityLog')
 
+const PROMPT_LIMITS = {
+  title: 160,
+  description: 1000,
+  content: 50000,
+  category: 80,
+  tags: 20,
+  tag: 40,
+}
+
 function isMongoConnected() {
   return mongoose.connection.readyState === 1
 }
@@ -46,12 +55,35 @@ function ensureVersionHistory(prompt, creatorId) {
 
 function cleanUpdate(body) {
   const update = {}
-  if (body.title !== undefined) update.title = String(body.title).trim()
-  if (body.description !== undefined) update.description = String(body.description).trim()
-  if (body.content !== undefined) update.content = String(body.content).trim()
-  if (body.category !== undefined) update.category = String(body.category).trim()
-  if (Array.isArray(body.tags)) {
-    update.tags = body.tags.map((tag) => String(tag).trim()).filter(Boolean)
+  for (const field of ['title', 'description', 'content', 'category']) {
+    if (body[field] !== undefined) {
+      if (typeof body[field] !== 'string') {
+        return { error: `${field} must be text.` }
+      }
+      update[field] = body[field].trim()
+    }
+  }
+  if (body.tags !== undefined) {
+    if (!Array.isArray(body.tags) || body.tags.some((tag) => typeof tag !== 'string')) {
+      return { error: 'Tags must be a list of text values.' }
+    }
+    update.tags = body.tags.map((tag) => tag.trim()).filter(Boolean)
+  }
+  for (const field of ['title', 'content', 'category']) {
+    if (update[field] !== undefined && !update[field]) {
+      return { error: `${field[0].toUpperCase()}${field.slice(1)} is required.` }
+    }
+  }
+  for (const field of ['title', 'description', 'content', 'category']) {
+    if (update[field]?.length > PROMPT_LIMITS[field]) {
+      return { error: `${field[0].toUpperCase()}${field.slice(1)} cannot exceed ${PROMPT_LIMITS[field]} characters.` }
+    }
+  }
+  if (update.tags?.length > PROMPT_LIMITS.tags) {
+    return { error: `No more than ${PROMPT_LIMITS.tags} tags are allowed.` }
+  }
+  if (update.tags?.some((tag) => tag.length > PROMPT_LIMITS.tag)) {
+    return { error: `Tags must be ${PROMPT_LIMITS.tag} characters or fewer.` }
   }
   return update
 }
@@ -117,10 +149,21 @@ async function recordPromptCopy(req, res) {
 async function createPrompt(req, res) {
   const { title, description, content, category, tags, favorite } = req.body || {}
 
-  if (!title || !content || !category) {
+  if (typeof title !== 'string' || !title.trim() ||
+      typeof content !== 'string' || !content.trim() ||
+      typeof category !== 'string' || !category.trim()) {
     return res.status(400).json({
       message: 'Title, content, and category are required.',
     })
+  }
+  if (description !== undefined && typeof description !== 'string') {
+    return res.status(400).json({ message: 'Description must be text.' })
+  }
+  if (tags !== undefined && (!Array.isArray(tags) || tags.some((tag) => typeof tag !== 'string'))) {
+    return res.status(400).json({ message: 'Tags must be a list of text values.' })
+  }
+  if (favorite !== undefined && typeof favorite !== 'boolean') {
+    return res.status(400).json({ message: 'Favorite must be true or false.' })
   }
 
   const promptPayload = {
@@ -132,6 +175,8 @@ async function createPrompt(req, res) {
     tags: Array.isArray(tags) ? tags.map((tag) => String(tag).trim()).filter(Boolean) : [],
     favorite: Boolean(favorite),
   }
+  const validation = cleanUpdate(promptPayload)
+  if (validation.error) return res.status(400).json({ message: validation.error })
   promptPayload.versionHistory = [
     createVersion(promptPayload, 1, req.user.id, 'Initial version'),
   ]
@@ -178,6 +223,17 @@ async function updatePrompt(req, res) {
 
   const body = req.body || {}
   const update = cleanUpdate(body)
+  if (update.error) return res.status(400).json({ message: update.error })
+  if (body.favorite !== undefined && typeof body.favorite !== 'boolean') {
+    return res.status(400).json({ message: 'Favorite must be true or false.' })
+  }
+  if (body.isPublic !== undefined && typeof body.isPublic !== 'boolean') {
+    return res.status(400).json({ message: 'Sharing visibility must be true or false.' })
+  }
+  if (body.changeNotes !== undefined &&
+      (typeof body.changeNotes !== 'string' || body.changeNotes.length > 300)) {
+    return res.status(400).json({ message: 'Change notes must be text of at most 300 characters.' })
+  }
   ensureVersionHistory(prompt, req.user.id)
   const contentChanged = hasContentChanges(prompt, update)
   Object.assign(prompt, update)

@@ -120,6 +120,8 @@ CRUD operations. It supports a real MongoDB connection when `MONGODB_URI` is set
 Without that variable, development uses JSON storage at
 `backend/.data/store.json`, which persists across backend restarts. This local
 fallback is intended for single-process development; use MongoDB for deployment.
+Prompt titles are limited to 160 characters, descriptions to 1,000, content to
+50,000, categories to 80, and tags to 20 entries of at most 40 characters each.
 Prompt edits create immutable snapshots with version numbers, change notes,
 creator IDs, and timestamps. Restoring an older version creates a new version.
 Prompt test runs can also be saved to the prompt and are private to its owner.
