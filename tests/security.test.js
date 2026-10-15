@@ -157,6 +157,49 @@ test('user login issues an HTTP-only cookie without returning its token', async 
   }
 })
 
+test('user login returns the same credential error for unknown users and wrong passwords', async () => {
+  const user = {
+    id: 'security-login-error-user',
+    name: 'Login Error Test',
+    email: 'login-error@example.com',
+    password: await bcrypt.hash('Correct Horse Battery12!', 10),
+    role: 'user',
+    status: 'active',
+    authVersion: 0,
+  }
+  users.push(user)
+
+  try {
+    const responses = await Promise.all([
+      fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: user.email, password: 'Wrong Password 123!' }),
+      }),
+      fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'missing-login@example.com', password: 'Wrong Password 123!' }),
+      }),
+    ])
+
+    assert.deepEqual(responses.map((response) => response.status), [401, 401])
+    assert.deepEqual(await Promise.all(responses.map((response) => response.json())), [
+      { message: 'Invalid email or password.' },
+      { message: 'Invalid email or password.' },
+    ])
+
+    const oversizedPasswordResponse = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: user.email, password: 'x'.repeat(73) }),
+    })
+    assert.equal(oversizedPasswordResponse.status, 400)
+  } finally {
+    users.splice(users.indexOf(user), 1)
+  }
+})
+
 test('untrusted browser origins are rejected', async () => {
   const response = await fetch(`${baseUrl}/api/health`, {
     headers: { Origin: 'https://untrusted.example' },

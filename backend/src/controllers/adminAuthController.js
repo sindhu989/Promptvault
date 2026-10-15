@@ -1,8 +1,8 @@
-const bcrypt = require('bcryptjs')
 const crypto = require('crypto')
 const mongoose = require('mongoose')
 const { users, adminSessions, save } = require('../data/store')
 const { signAdminToken } = require('../utils/jwt')
+const { verifyPassword } = require('../utils/passwordVerification')
 const User = require('../models/User')
 const AdminSession = require('../models/AdminSession')
 const { setAdminCookie } = require('../utils/authCookie')
@@ -22,7 +22,14 @@ async function login(req, res, next) {
   try {
     const email = String(req.body?.email || '').trim().toLowerCase()
     const password = req.body?.password
-    if (!email || !password) {
+    if (
+      !email ||
+      email.length > 254 ||
+      typeof req.body?.email !== 'string' ||
+      typeof password !== 'string' ||
+      !password ||
+      Buffer.byteLength(password, 'utf8') > 72
+    ) {
       return res.status(400).json({ message: 'Email and password are required.' })
     }
 
@@ -30,7 +37,7 @@ async function login(req, res, next) {
     const user = mongoConnected
       ? await User.findOne({ email })
       : users.find((item) => item.email.toLowerCase() === email)
-    if (!user || !(await bcrypt.compare(String(password), user.password))) {
+    if (!(await verifyPassword(password, user?.password))) {
       return res.status(401).json({ message: 'Invalid email or password.' })
     }
     if (user.status === 'suspended' || user.status === 'deactivated') {

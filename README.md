@@ -67,6 +67,9 @@ existing user sessions. Existing browser bearer-token sessions are not migrated;
 users and admins must sign in again after deploying this authentication change.
 Authentication responses use an explicit user-profile allowlist and never
 include password hashes, reset-token hashes, or session-version fields.
+User and admin login validate bounded string credentials and perform a dummy
+password-hash comparison for unknown accounts to reduce timing-based account
+enumeration.
 The protected admin dashboard summarizes users, prompts, collections, saved
 tests, recorded prompt copies, and recent activity. Active and new user counts
 use a rolling 30-day window. Usage totals reflect retained activity and saved

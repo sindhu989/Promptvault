@@ -3,6 +3,7 @@ const crypto = require('crypto')
 const mongoose = require('mongoose')
 const { users, save } = require('../data/store')
 const { signToken } = require('../utils/jwt')
+const { verifyPassword } = require('../utils/passwordVerification')
 const User = require('../models/User')
 const { sendPasswordResetEmail } = require('../services/passwordResetEmail')
 const { setUserCookie, clearUserCookie } = require('../utils/authCookie')
@@ -123,17 +124,19 @@ async function register(req, res) {
 async function login(req, res) {
   const { email, password } = req.body || {}
 
-  if (!email || !password) {
+  if (
+    typeof email !== 'string' ||
+    !email.trim() ||
+    email.length > 254 ||
+    typeof password !== 'string' ||
+    !password ||
+    Buffer.byteLength(password, 'utf8') > MAX_PASSWORD_BYTES
+  ) {
     return res.status(400).json({ message: 'Email and password are required.' })
   }
 
   const user = await findUserByEmail(email)
-  if (!user) {
-    return res.status(401).json({ message: 'Invalid email or password.' })
-  }
-
-  const isMatch = await bcrypt.compare(String(password), user.password)
-  if (!isMatch) {
+  if (!(await verifyPassword(password, user?.password))) {
     return res.status(401).json({ message: 'Invalid email or password.' })
   }
   if (user.status === 'suspended' || user.status === 'deactivated') {
