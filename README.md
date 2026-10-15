@@ -71,7 +71,8 @@ API responses use `Cache-Control: no-store` to prevent browsers and intermediary
 caches from retaining authentication or private account data.
 User and admin login validate bounded string credentials and perform a dummy
 password-hash comparison for unknown accounts to reduce timing-based account
-enumeration.
+enumeration. Failed login responses do not disclose whether an account is
+inactive or whether a user account has administrator access.
 The protected admin dashboard summarizes users, prompts, collections, saved
 tests, recorded prompt copies, and recent activity. Active and new user counts
 use a rolling 30-day window. Usage totals reflect retained activity and saved

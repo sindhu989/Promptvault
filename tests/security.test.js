@@ -171,7 +171,13 @@ test('user login returns the same credential error for unknown users and wrong p
     status: 'active',
     authVersion: 0,
   }
-  users.push(user)
+  const suspendedUser = {
+    ...user,
+    id: 'security-login-suspended-user',
+    email: 'login-suspended@example.com',
+    status: 'suspended',
+  }
+  users.push(user, suspendedUser)
 
   try {
     const responses = await Promise.all([
@@ -185,10 +191,16 @@ test('user login returns the same credential error for unknown users and wrong p
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: 'missing-login@example.com', password: 'Wrong Password 123!' }),
       }),
+      fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: suspendedUser.email, password: 'Correct Horse Battery12!' }),
+      }),
     ])
 
-    assert.deepEqual(responses.map((response) => response.status), [401, 401])
+    assert.deepEqual(responses.map((response) => response.status), [401, 401, 401])
     assert.deepEqual(await Promise.all(responses.map((response) => response.json())), [
+      { message: 'Invalid email or password.' },
       { message: 'Invalid email or password.' },
       { message: 'Invalid email or password.' },
     ])
@@ -201,6 +213,64 @@ test('user login returns the same credential error for unknown users and wrong p
     assert.equal(oversizedPasswordResponse.status, 400)
   } finally {
     users.splice(users.indexOf(user), 1)
+    users.splice(users.indexOf(suspendedUser), 1)
+  }
+})
+
+test('admin login does not reveal existing non-admin or inactive accounts', async () => {
+  const regularUser = {
+    id: 'security-admin-login-user',
+    name: 'Regular Account',
+    email: 'admin-login-user@example.com',
+    password: await bcrypt.hash('Correct Horse Battery12!', 10),
+    role: 'user',
+    status: 'active',
+    authVersion: 0,
+  }
+  const suspendedUser = {
+    ...regularUser,
+    id: 'security-admin-login-suspended-user',
+    email: 'admin-login-suspended@example.com',
+    status: 'suspended',
+  }
+  const previousBootstrapEmail = process.env.ADMIN_EMAIL
+  const previousBootstrapSecret = process.env.ADMIN_BOOTSTRAP_SECRET
+  delete process.env.ADMIN_EMAIL
+  delete process.env.ADMIN_BOOTSTRAP_SECRET
+  users.push(regularUser, suspendedUser)
+
+  try {
+    const responses = await Promise.all([
+      fetch(`${baseUrl}/api/admin/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: regularUser.email, password: 'Correct Horse Battery12!' }),
+      }),
+      fetch(`${baseUrl}/api/admin/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: suspendedUser.email, password: 'Correct Horse Battery12!' }),
+      }),
+      fetch(`${baseUrl}/api/admin/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'missing-admin@example.com', password: 'Wrong Password 123!' }),
+      }),
+    ])
+    assert.deepEqual(responses.map((response) => response.status), [401, 401, 401])
+    assert.deepEqual(await Promise.all(responses.map((response) => response.json())), [
+      { message: 'Invalid email or password.' },
+      { message: 'Invalid email or password.' },
+      { message: 'Invalid email or password.' },
+    ])
+    assert.equal(regularUser.role, 'user')
+  } finally {
+    users.splice(users.indexOf(regularUser), 1)
+    users.splice(users.indexOf(suspendedUser), 1)
+    if (previousBootstrapEmail === undefined) delete process.env.ADMIN_EMAIL
+    else process.env.ADMIN_EMAIL = previousBootstrapEmail
+    if (previousBootstrapSecret === undefined) delete process.env.ADMIN_BOOTSTRAP_SECRET
+    else process.env.ADMIN_BOOTSTRAP_SECRET = previousBootstrapSecret
   }
 })
 

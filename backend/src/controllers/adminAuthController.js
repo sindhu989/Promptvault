@@ -41,7 +41,7 @@ async function login(req, res, next) {
       return res.status(401).json({ message: 'Invalid email or password.' })
     }
     if (user.status === 'suspended' || user.status === 'deactivated') {
-      return res.status(403).json({ message: 'This account is not active.' })
+      return res.status(401).json({ message: 'Invalid email or password.' })
     }
 
     const bootstrapEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase()
@@ -52,7 +52,7 @@ async function login(req, res, next) {
         !process.env.ADMIN_BOOTSTRAP_SECRET ||
         process.env.ADMIN_BOOTSTRAP_SECRET.length < 32
       ) {
-        return res.status(403).json({ message: 'This account is not authorized for admin access.' })
+        return res.status(401).json({ message: 'Invalid email or password.' })
       }
       user.role = 'admin'
       if (mongoConnected) await user.save()
