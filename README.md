@@ -229,7 +229,9 @@ deployed frontend calls the API on the same origin.
 
 The health endpoint returns HTTP 503 with `"status":"error"` and
 `"mode":"disconnected"` if a configured MongoDB connection is unavailable,
-allowing the deployment platform to detect database outages.
+allowing the deployment platform to detect database outages. All API routes
+also return HTTP 503 during a MongoDB outage instead of silently switching to
+the development JSON store; the health endpoint remains available.
 Production startup intentionally fails if `MONGODB_URI` is missing or
 `JWT_SECRET` is shorter than 32 characters. Do not use the local JSON store for
 a deployment: it is single-process development storage and may not persist

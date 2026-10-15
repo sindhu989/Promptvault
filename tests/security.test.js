@@ -67,6 +67,12 @@ test('health check reports MongoDB outages as unavailable', async () => {
       message: 'PromptVault database is unavailable.',
       mode: 'disconnected',
     })
+
+    const publicApiResponse = await fetch(`${baseUrl}/api/public/prompts/featured`)
+    assert.equal(publicApiResponse.status, 503)
+    assert.deepEqual(await publicApiResponse.json(), {
+      message: 'PromptVault database is unavailable.',
+    })
   } finally {
     mongoose.connection.readyState = previousReadyState
     if (previousMongoUri === undefined) {

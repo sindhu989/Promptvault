@@ -89,6 +89,15 @@ app.get('/api/health', (req, res) => {
   })
 })
 
+app.use('/api', (req, res, next) => {
+  if (process.env.MONGODB_URI && mongoose.connection.readyState !== 1) {
+    return res.status(503).json({
+      message: 'PromptVault database is unavailable.',
+    })
+  }
+  return next()
+})
+
 app.use('/api/auth', authRoutes)
 app.use('/api/admin/auth', adminAuthRoutes)
 app.use('/api/admin/dashboard', adminDashboardRoutes)
