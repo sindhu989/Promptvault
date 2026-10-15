@@ -91,6 +91,20 @@ test('protected routes reject requests without a session cookie', async () => {
 
   const adminResponse = await fetch(`${baseUrl}/api/admin/dashboard`)
   assert.equal(adminResponse.status, 401)
+
+  const exportResponse = await fetch(`${baseUrl}/api/export`)
+  assert.equal(exportResponse.status, 401)
+
+  const importResponse = await fetch(`${baseUrl}/api/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  })
+  assert.equal(importResponse.status, 401)
+
+  const unknownApiResponse = await fetch(`${baseUrl}/api/no-such-route`)
+  assert.equal(unknownApiResponse.status, 404)
+  assert.deepEqual(await unknownApiResponse.json(), { message: 'API route not found.' })
 })
 
 test('user login issues an HTTP-only cookie without returning its token', async () => {
