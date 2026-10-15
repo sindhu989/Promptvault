@@ -113,8 +113,12 @@ test('user login issues an HTTP-only cookie without returning its token', async 
     name: 'Security Test',
     email: 'security-test@example.com',
     password: await bcrypt.hash('Correct Horse Battery12!', 10),
+    passwordResetToken: 'hashed-one-time-reset-token',
+    passwordResetExpires: new Date(Date.now() + 60_000).toISOString(),
     authVersion: 0,
     role: 'user',
+    status: 'active',
+    theme: 'light',
   }
   users.push(user)
 
@@ -128,6 +132,10 @@ test('user login issues an HTTP-only cookie without returning its token', async 
     const setCookie = loginResponse.headers.get('set-cookie')
     assert.equal(loginResponse.status, 200)
     assert.equal(loginBody.token, undefined)
+    assert.equal(loginBody.user.password, undefined)
+    assert.equal(loginBody.user.passwordResetToken, undefined)
+    assert.equal(loginBody.user.passwordResetExpires, undefined)
+    assert.equal(loginBody.user.authVersion, undefined)
     assert.match(setCookie, /HttpOnly/i)
     assert.match(setCookie, /SameSite=Strict/i)
     assert.match(setCookie, /Path=\/api/i)

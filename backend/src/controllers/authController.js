@@ -23,12 +23,16 @@ function getPasswordError(password, label = 'Password') {
 
 function sanitizeUser(user) {
   if (!user) return null
-  const { password, _id, authVersion, ...safeUser } = user.toObject ? user.toObject() : user
+  const safeUser = user.toObject ? user.toObject() : user
   return {
-    ...safeUser,
+    id: safeUser.id || String(safeUser._id || user.id),
+    name: safeUser.name,
+    email: safeUser.email,
     role: safeUser.role === 'admin' ? 'admin' : 'user',
+    status: safeUser.status,
     theme: safeUser.theme === 'dark' ? 'dark' : 'light',
-    id: safeUser.id || String(_id || safeUser._id || user.id),
+    ...(safeUser.createdAt !== undefined && { createdAt: safeUser.createdAt }),
+    ...(safeUser.updatedAt !== undefined && { updatedAt: safeUser.updatedAt }),
   }
 }
 

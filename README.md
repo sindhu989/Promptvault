@@ -65,6 +65,8 @@ User and admin sessions are held in `HttpOnly`, `SameSite=Strict` cookies and
 are never returned as JavaScript-readable tokens. Password changes invalidate
 existing user sessions. Existing browser bearer-token sessions are not migrated;
 users and admins must sign in again after deploying this authentication change.
+Authentication responses use an explicit user-profile allowlist and never
+include password hashes, reset-token hashes, or session-version fields.
 The protected admin dashboard summarizes users, prompts, collections, saved
 tests, recorded prompt copies, and recent activity. Active and new user counts
 use a rolling 30-day window. Usage totals reflect retained activity and saved
