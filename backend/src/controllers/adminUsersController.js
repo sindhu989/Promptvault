@@ -74,7 +74,7 @@ async function listUsers(req, res, next) {
           .sort({ createdAt: -1, _id: -1 })
           .skip(skip)
           .limit(PAGE_SIZE)
-          .select('-password -passwordResetToken -passwordResetExpires')
+          .select('-password -passwordResetToken -passwordResetOtpHash -passwordResetOtpAttempts -passwordResetExpires')
           .lean(),
       ])
       const promptCounts = await Prompt.aggregate([
@@ -117,7 +117,7 @@ async function getUserDetails(req, res, next) {
         return res.status(404).json({ message: 'User not found.' })
       }
       user = await User.findById(req.params.id)
-        .select('-password -passwordResetToken -passwordResetExpires')
+        .select('-password -passwordResetToken -passwordResetOtpHash -passwordResetOtpAttempts -passwordResetExpires')
         .lean()
       if (!user) return res.status(404).json({ message: 'User not found.' })
       const userId = String(user._id)

@@ -1,6 +1,5 @@
 const assert = require('node:assert/strict')
 const bcrypt = require('../backend/node_modules/bcryptjs')
-const crypto = require('node:crypto')
 const fs = require('node:fs')
 const mongoose = require('../backend/node_modules/mongoose')
 const { after, before, test } = require('node:test')
@@ -395,60 +394,21 @@ test('prompt create and update reject malformed or oversized fields', async () =
   }
 })
 
-test('password reset tokens can only be consumed once during concurrent requests', async () => {
-  const token = crypto.randomBytes(32).toString('hex')
+test('password reset OTPs are emailed, hashed, expire, and can only be consumed once', async () => {
   const user = {
     id: 'security-reset-token-user',
     name: 'Reset Token Test',
-    email: 'reset-token@example.com',
+    email: `security-reset-otp-${Date.now()}@example.test`,
     password: await bcrypt.hash('Original Password 123!', 10),
-    passwordResetToken: crypto.createHash('sha256').update(token).digest('hex'),
-    passwordResetExpires: new Date(Date.now() + 60_000).toISOString(),
     authVersion: 0,
     role: 'user',
     status: 'active',
   }
-  users.push(user)
-
-  try {
-    const requests = ['First New Password 123!', 'Second New Password 123!'].map((newPassword) =>
-      fetch(`${baseUrl}/api/auth/reset-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, newPassword }),
-      }),
-    )
-    const responses = await Promise.all(requests)
-    assert.deepEqual(responses.map((response) => response.status).sort(), [200, 400])
-    assert.equal(user.authVersion, 1)
-    assert.equal(user.passwordResetToken, undefined)
-    assert.equal(user.passwordResetExpires, undefined)
-
-    const replayResponse = await fetch(`${baseUrl}/api/auth/reset-password`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, newPassword: 'Third New Password 123!' }),
-    })
-    assert.equal(replayResponse.status, 400)
-  } finally {
-    users.splice(users.indexOf(user), 1)
-  }
-})
-
-test('password reset links put the token in the URL fragment, not the query', async () => {
-  const user = {
-    id: 'security-reset-link-user',
-    name: 'Reset Link Test',
-    email: 'reset-link@example.com',
-    password: await bcrypt.hash('Original Password 123!', 10),
-    role: 'user',
-    status: 'active',
-  }
   const previousEnvironment = {
-    appUrl: process.env.APP_URL,
     resendApiKey: process.env.RESEND_API_KEY,
     resendFrom: process.env.RESEND_FROM,
   }
+  const previousReadyState = mongoose.connection.readyState
   const originalFetch = global.fetch
   const originalFsMethods = {
     mkdirSync: fs.mkdirSync,
@@ -457,9 +417,9 @@ test('password reset links put the token in the URL fragment, not the query', as
   }
   let emailPayload
   users.push(user)
-  process.env.APP_URL = 'https://promptvault.example'
   process.env.RESEND_API_KEY = 'test-resend-api-key'
   process.env.RESEND_FROM = 'PromptVault <test@example.com>'
+  mongoose.connection.readyState = 0
   fs.mkdirSync = () => {}
   fs.writeFileSync = () => {}
   fs.renameSync = () => {}
@@ -470,23 +430,45 @@ test('password reset links put the token in the URL fragment, not the query', as
   }
 
   try {
-    const response = await originalFetch(`${baseUrl}/api/auth/forgot-password`, {
+    const requestResponse = await originalFetch(`${baseUrl}/api/auth/forgot-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: user.email }),
     })
-    assert.equal(response.status, 200)
-    const url = new URL(emailPayload.text.match(/https:\/\/\S+/)[0])
-    assert.equal(url.origin, 'https://promptvault.example')
-    assert.equal(url.searchParams.has('resetToken'), false)
-    assert.match(url.hash, /^#resetToken=[a-f0-9]{64}$/)
+    assert.equal(requestResponse.status, 200)
+    assert.match(emailPayload.text, /15 minutes/)
+    const otp = emailPayload.text.match(/\n\n(\d{6})\n\n/)[1]
+    assert.match(user.passwordResetOtpHash, /^[a-f0-9]{64}$/)
+    assert.notEqual(user.passwordResetOtpHash, otp)
+    assert.ok(new Date(user.passwordResetExpires).getTime() - Date.now() <= 15 * 60 * 1000)
+
+    const requests = ['First New Password 123!', 'Second New Password 123!'].map((newPassword) =>
+      originalFetch(`${baseUrl}/api/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: user.email, otp, newPassword }),
+      }),
+    )
+    const responses = await Promise.all(requests)
+    assert.deepEqual(responses.map((response) => response.status).sort(), [200, 400])
+    assert.equal(user.authVersion, 1)
+    assert.equal(user.passwordResetOtpHash, undefined)
+    assert.equal(user.passwordResetOtpAttempts, 0)
+    assert.equal(user.passwordResetExpires, undefined)
+
+    const replayResponse = await originalFetch(`${baseUrl}/api/auth/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: user.email, otp, newPassword: 'Third New Password 123!' }),
+    })
+    assert.equal(replayResponse.status, 400)
   } finally {
     global.fetch = originalFetch
     fs.mkdirSync = originalFsMethods.mkdirSync
     fs.writeFileSync = originalFsMethods.writeFileSync
     fs.renameSync = originalFsMethods.renameSync
+    mongoose.connection.readyState = previousReadyState
     for (const [key, value] of [
-      ['APP_URL', previousEnvironment.appUrl],
       ['RESEND_API_KEY', previousEnvironment.resendApiKey],
       ['RESEND_FROM', previousEnvironment.resendFrom],
     ]) {
@@ -498,14 +480,13 @@ test('password reset links put the token in the URL fragment, not the query', as
   }
 })
 
-test('password reset requests persist tokens through MongoDB model updates', async () => {
+test('password reset requests persist hashed OTPs through MongoDB model updates', async () => {
   const user = {
     _id: 'security-mongo-reset-user',
     name: 'Mongo Reset Test',
     email: 'mongo-reset@example.com',
   }
   const previousEnvironment = {
-    appUrl: process.env.APP_URL,
     mongoUri: process.env.MONGODB_URI,
     resendApiKey: process.env.RESEND_API_KEY,
     resendFrom: process.env.RESEND_FROM,
@@ -513,19 +494,31 @@ test('password reset requests persist tokens through MongoDB model updates', asy
   const previousReadyState = mongoose.connection.readyState
   const originalFindOne = User.findOne
   const originalUpdateOne = User.updateOne
+  const originalFindOneAndUpdate = User.findOneAndUpdate
   const originalFetch = global.fetch
   let emailPayload
+  let storedOtpHash
   const updates = []
 
-  process.env.APP_URL = 'https://promptvault.example'
   process.env.MONGODB_URI = 'mongodb://unit-test.invalid/promptvault'
   process.env.RESEND_API_KEY = 'test-resend-api-key'
   process.env.RESEND_FROM = 'PromptVault <test@example.com>'
   mongoose.connection.readyState = 1
-  User.findOne = () => ({ lean: async () => ({ ...user }) })
+  User.findOne = () => ({
+    select: () => ({ lean: async () => ({ ...user, passwordResetOtpHash: storedOtpHash }) }),
+    lean: async () => ({ ...user }),
+  })
   User.updateOne = async (filter, update) => {
     updates.push({ filter, update })
+    storedOtpHash = update.$set.passwordResetOtpHash
     return { matchedCount: 1 }
+  }
+  let consumeFilter
+  let consumeUpdate
+  User.findOneAndUpdate = (filter, update) => {
+    consumeFilter = filter
+    consumeUpdate = update
+    return { lean: async () => ({ _id: user._id }) }
   }
   global.fetch = async (url, options) => {
     assert.equal(url, 'https://api.resend.com/emails')
@@ -542,19 +535,36 @@ test('password reset requests persist tokens through MongoDB model updates', asy
     assert.equal(response.status, 200)
     assert.equal(updates.length, 1)
     assert.deepEqual(updates[0].filter, { _id: user._id })
-    const storedToken = updates[0].update.$set.passwordResetToken
-    assert.match(storedToken, /^[a-f0-9]{64}$/)
+    const storedHash = updates[0].update.$set.passwordResetOtpHash
+    assert.match(storedHash, /^[a-f0-9]{64}$/)
+    assert.equal(updates[0].update.$set.passwordResetOtpAttempts, 0)
     assert.ok(updates[0].update.$set.passwordResetExpires instanceof Date)
-    const resetUrl = new URL(emailPayload.text.match(/https:\/\/\S+/)[0])
-    const rawToken = new URLSearchParams(resetUrl.hash.slice(1)).get('resetToken')
-    assert.equal(crypto.createHash('sha256').update(rawToken).digest('hex'), storedToken)
+    const otp = emailPayload.text.match(/\n\n(\d{6})\n\n/)[1]
+    assert.notEqual(storedHash, otp)
+
+    const resetResponse = await originalFetch(`${baseUrl}/api/auth/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: user.email,
+        otp,
+        newPassword: 'Mongo Reset Password 123!',
+      }),
+    })
+    assert.equal(resetResponse.status, 200)
+    assert.equal(consumeFilter._id, user._id)
+    assert.equal(consumeFilter.passwordResetOtpHash, storedHash)
+    assert.equal(consumeFilter.passwordResetOtpAttempts.$lt, 5)
+    assert.equal(consumeUpdate.$unset.passwordResetOtpHash, 1)
+    assert.equal(consumeUpdate.$unset.passwordResetExpires, 1)
+    assert.equal(consumeUpdate.$inc.authVersion, 1)
   } finally {
     User.findOne = originalFindOne
     User.updateOne = originalUpdateOne
+    User.findOneAndUpdate = originalFindOneAndUpdate
     global.fetch = originalFetch
     mongoose.connection.readyState = previousReadyState
     for (const [key, value] of [
-      ['APP_URL', previousEnvironment.appUrl],
       ['MONGODB_URI', previousEnvironment.mongoUri],
       ['RESEND_API_KEY', previousEnvironment.resendApiKey],
       ['RESEND_FROM', previousEnvironment.resendFrom],
@@ -562,6 +572,69 @@ test('password reset requests persist tokens through MongoDB model updates', asy
       if (value === undefined) delete process.env[key]
       else process.env[key] = value
     }
+  }
+})
+
+test('password reset OTP rejects codes after five incorrect attempts', async () => {
+  const user = {
+    id: `security-reset-attempts-${Date.now()}`,
+    name: 'Reset Attempt Test',
+    email: `security-reset-attempts-${Date.now()}@example.test`,
+    password: await bcrypt.hash('Original Password 123!', 10),
+    passwordResetOtpHash: 'unused',
+    passwordResetOtpAttempts: 0,
+    passwordResetExpires: new Date(Date.now() + 60_000).toISOString(),
+    authVersion: 0,
+    role: 'user',
+    status: 'active',
+  }
+  const previousReadyState = mongoose.connection.readyState
+  const originalFsMethods = {
+    mkdirSync: fs.mkdirSync,
+    writeFileSync: fs.writeFileSync,
+    renameSync: fs.renameSync,
+  }
+  users.push(user)
+  mongoose.connection.readyState = 0
+  fs.mkdirSync = () => {}
+  fs.writeFileSync = () => {}
+  fs.renameSync = () => {}
+
+  try {
+    const attempts = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        fetch(`${baseUrl}/api/auth/reset-password`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: user.email,
+            otp: '000000',
+            newPassword: 'New Password Secure 123!',
+          }),
+        }),
+      ),
+    )
+    assert.ok(attempts.every((response) => response.status === 400))
+    assert.equal(user.passwordResetOtpAttempts, 5)
+
+    const correctCodeResponse = await fetch(`${baseUrl}/api/auth/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: user.email,
+        otp: '123456',
+        newPassword: 'New Password Secure 123!',
+      }),
+    })
+    assert.equal(correctCodeResponse.status, 400)
+    assert.equal(user.authVersion, 0)
+  } finally {
+    fs.mkdirSync = originalFsMethods.mkdirSync
+    fs.writeFileSync = originalFsMethods.writeFileSync
+    fs.renameSync = originalFsMethods.renameSync
+    mongoose.connection.readyState = previousReadyState
+    const index = users.indexOf(user)
+    if (index >= 0) users.splice(index, 1)
   }
 })
 

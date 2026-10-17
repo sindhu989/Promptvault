@@ -107,13 +107,12 @@ The admin Activity area provides a protected, paginated platform activity view w
 across event metadata and account name/email, entity and action filters, and an
 inclusive date range. Responses include only account name/email and event
 metadata; passwords and internal entity/user IDs are excluded.
-Password recovery uses one-time tokens stored as hashes and expires after one
-hour. Token consumption is atomic, so concurrent reset requests cannot reuse
-the same link. New reset links keep the raw token in the URL fragment, which is
-not sent in HTTP requests; the frontend removes it from the address bar after
-loading, and the server uses a no-referrer policy. Reset request and submission
-routes are rate-limited. Recovery email is sent through Resend only after the
-sender domain is verified and the service is configured.
+Password recovery sends a six-digit, one-time code that expires after 15
+minutes. The backend stores only an HMAC of the code, limits verification
+attempts, and consumes valid codes atomically so concurrent reset requests
+cannot reuse one. Reset request and submission routes are rate-limited.
+Recovery email is sent through Resend only after the sender domain is verified
+and the service is configured.
 
 The backend includes Express routes, HTTP-only cookie authentication, and prompt
 CRUD operations. It supports a real MongoDB connection when `MONGODB_URI` is set.
@@ -263,8 +262,8 @@ the strict session cookies to be sent; keep both on the same origin when possibl
 Email recovery requires a Resend account and a sender domain verified with
 Resend. In Render's **Environment** settings, add `RESEND_API_KEY` and
 `RESEND_FROM` using the verified sender address, for example
-`PromptVault <no-reply@yourdomain.com>`. Render's `RENDER_EXTERNAL_URL` is used
-to construct reset links. Keep the API key private. Reset requests always use
-the same public response to prevent account discovery; email delivery failures
-are reported in the backend logs. Login and other app features continue to
-work without email settings.
+`PromptVault <no-reply@yourdomain.com>`. Password-reset messages contain a
+six-digit code valid for 15 minutes. Keep the API key private. Reset requests
+always use the same public response to prevent account discovery; email
+delivery failures are reported in the backend logs. Login and other app
+features continue to work without email settings.

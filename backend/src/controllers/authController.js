@@ -10,6 +10,26 @@ const { setUserCookie, clearUserCookie } = require('../utils/authCookie')
 
 const MIN_PASSWORD_LENGTH = 12
 const MAX_PASSWORD_BYTES = 72
+const PASSWORD_RESET_OTP_TTL_MS = 15 * 60 * 1000
+const PASSWORD_RESET_OTP_MAX_ATTEMPTS = 5
+
+function hashPasswordResetOtp(userId, otp) {
+  const secret = process.env.JWT_SECRET || (
+    process.env.NODE_ENV === 'production' ? '' : 'dev-secret'
+  )
+  if (!secret) throw new Error('JWT_SECRET must be configured in production.')
+  return crypto
+    .createHmac('sha256', secret)
+    .update(`${userId}:${otp}`)
+    .digest('hex')
+}
+
+function isSameHash(left, right) {
+  if (typeof left !== 'string' || typeof right !== 'string') return false
+  const leftBuffer = Buffer.from(left, 'hex')
+  const rightBuffer = Buffer.from(right, 'hex')
+  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer)
+}
 
 function getPasswordError(password, label = 'Password') {
   const value = String(password)
@@ -245,117 +265,160 @@ async function requestPasswordReset(req, res) {
 
   const user = await findUserByEmail(email)
   if (!user) {
-    return res.json({ message: 'If an account exists, a password reset link will be sent.' })
+    return res.json({ message: 'If an account exists, a password reset code will be sent.' })
   }
 
-  const rawToken = crypto.randomBytes(32).toString('hex')
-  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex')
-  const expiresAt = new Date(Date.now() + 60 * 60 * 1000)
-  user.passwordResetToken = tokenHash
+  const otp = crypto.randomInt(100000, 1000000).toString()
+  const otpHash = hashPasswordResetOtp(user._id || user.id, otp)
+  const expiresAt = new Date(Date.now() + PASSWORD_RESET_OTP_TTL_MS)
+  user.passwordResetOtpHash = otpHash
+  user.passwordResetOtpAttempts = 0
   user.passwordResetExpires = expiresAt
 
   if (isMongoConnected()) {
     await User.updateOne(
       { _id: user._id },
-      { $set: { passwordResetToken: tokenHash, passwordResetExpires: expiresAt } },
+      {
+        $set: {
+          passwordResetOtpHash: otpHash,
+          passwordResetOtpAttempts: 0,
+          passwordResetExpires: expiresAt,
+        },
+        $unset: { passwordResetToken: 1 },
+      },
     )
   } else {
+    user.passwordResetToken = undefined
     user.passwordResetExpires = expiresAt.toISOString()
     save()
   }
 
-  const appUrl =
-    process.env.APP_URL ||
-    process.env.RENDER_EXTERNAL_URL ||
-    (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:4173')
-
   try {
-    if (!appUrl) throw new Error('APP_URL is required to send password reset links.')
-    const resetUrl = new URL('/', appUrl)
-    if (process.env.NODE_ENV === 'production' && resetUrl.protocol !== 'https:') {
-      throw new Error('APP_URL must use HTTPS in production.')
-    }
-    resetUrl.hash = new URLSearchParams({ resetToken: rawToken }).toString()
-    await sendPasswordResetEmail(user.email, user.name, resetUrl.toString())
+    await sendPasswordResetEmail(user.email, user.name, otp)
   } catch (error) {
+    user.passwordResetOtpHash = undefined
+    user.passwordResetOtpAttempts = 0
     user.passwordResetToken = undefined
     user.passwordResetExpires = undefined
     if (isMongoConnected()) {
       await User.updateOne(
-        { _id: user._id },
-        { $unset: { passwordResetToken: 1, passwordResetExpires: 1 } },
+        { _id: user._id, passwordResetOtpHash: otpHash },
+        {
+          $unset: {
+            passwordResetOtpHash: 1,
+            passwordResetExpires: 1,
+            passwordResetToken: 1,
+          },
+          $set: { passwordResetOtpAttempts: 0 },
+        },
       )
     } else {
       save()
     }
     console.error('Could not send password reset email:', error.message)
-    return res.json({ message: 'If an account exists, a password reset link will be sent.' })
+    return res.json({ message: 'If an account exists, a password reset code will be sent.' })
   }
 
-  return res.json({ message: 'If an account exists, a password reset link will be sent.' })
+  return res.json({ message: 'If an account exists, a password reset code will be sent.' })
 }
 
 async function resetPassword(req, res) {
-  const token = req.body?.token
+  const email = String(req.body?.email || '').trim().toLowerCase()
+  const otp = req.body?.otp
   const newPassword = req.body?.newPassword
   if (
-    typeof token !== 'string' ||
-    !/^[a-f0-9]{64}$/i.test(token) ||
+    !email ||
+    typeof otp !== 'string' ||
+    !/^\d{6}$/.test(otp) ||
     typeof newPassword !== 'string' ||
     !newPassword
   ) {
-    return res.status(400).json({ message: 'Reset token and new password are required.' })
+    return res.status(400).json({ message: 'Email, six-digit reset code, and new password are required.' })
   }
   const passwordError = getPasswordError(newPassword, 'New password')
   if (passwordError) return res.status(400).json({ message: passwordError })
 
-  const tokenHash = crypto.createHash('sha256').update(token).digest('hex')
   const mongoConnected = isMongoConnected()
   let user
   if (mongoConnected) {
-    const resetTokenOwner = await User.findOne({
-        passwordResetToken: tokenHash,
-        passwordResetExpires: { $gt: new Date() },
-      }).select('_id').lean()
-    if (!resetTokenOwner) {
-      return res.status(400).json({ message: 'This password reset link is invalid or has expired.' })
+    const candidate = await User.findOne({
+      email,
+      passwordResetExpires: { $gt: new Date() },
+      passwordResetOtpAttempts: { $lt: PASSWORD_RESET_OTP_MAX_ATTEMPTS },
+    }).select('_id passwordResetOtpHash').lean()
+    if (!candidate) {
+      return res.status(400).json({ message: 'This reset code is invalid or has expired.' })
+    }
+
+    const otpHash = hashPasswordResetOtp(candidate._id, otp)
+    if (!isSameHash(candidate.passwordResetOtpHash, otpHash)) {
+      await User.updateOne(
+        {
+          _id: candidate._id,
+          passwordResetExpires: { $gt: new Date() },
+          passwordResetOtpAttempts: { $lt: PASSWORD_RESET_OTP_MAX_ATTEMPTS },
+        },
+        { $inc: { passwordResetOtpAttempts: 1 } },
+      )
+      return res.status(400).json({ message: 'This reset code is invalid or has expired.' })
     }
 
     const passwordHash = await bcrypt.hash(newPassword, 10)
     user = await User.findOneAndUpdate(
       {
-        _id: resetTokenOwner._id,
-        passwordResetToken: tokenHash,
+        _id: candidate._id,
+        passwordResetOtpHash: candidate.passwordResetOtpHash,
         passwordResetExpires: { $gt: new Date() },
+        passwordResetOtpAttempts: { $lt: PASSWORD_RESET_OTP_MAX_ATTEMPTS },
       },
       {
-        $set: { password: passwordHash },
-        $unset: { passwordResetToken: 1, passwordResetExpires: 1 },
+        $set: { password: passwordHash, passwordResetOtpAttempts: 0 },
+        $unset: {
+          passwordResetOtpHash: 1,
+          passwordResetExpires: 1,
+          passwordResetToken: 1,
+        },
         $inc: { authVersion: 1 },
       },
       { new: true, runValidators: true },
     ).lean()
   } else {
-    const tokenIsValid = (item) =>
-      item.passwordResetToken === tokenHash &&
-      new Date(item.passwordResetExpires) > new Date()
-    const resetTokenOwner = users.find(tokenIsValid)
-    if (!resetTokenOwner) {
-      return res.status(400).json({ message: 'This password reset link is invalid or has expired.' })
+    const candidate = users.find((item) =>
+      item.email.toLowerCase() === email &&
+      item.passwordResetOtpHash &&
+      new Date(item.passwordResetExpires) > new Date() &&
+      (item.passwordResetOtpAttempts || 0) < PASSWORD_RESET_OTP_MAX_ATTEMPTS,
+    )
+    if (!candidate) {
+      return res.status(400).json({ message: 'This reset code is invalid or has expired.' })
+    }
+
+    const candidateOtpHash = candidate.passwordResetOtpHash
+    const otpHash = hashPasswordResetOtp(candidate.id, otp)
+    if (!isSameHash(candidateOtpHash, otpHash)) {
+      candidate.passwordResetOtpAttempts = (candidate.passwordResetOtpAttempts || 0) + 1
+      save()
+      return res.status(400).json({ message: 'This reset code is invalid or has expired.' })
     }
 
     const passwordHash = await bcrypt.hash(newPassword, 10)
-    user = users.find((item) => item.id === resetTokenOwner.id && tokenIsValid(item))
+    user = users.find((item) =>
+      item.id === candidate.id &&
+      item.passwordResetOtpHash === candidateOtpHash &&
+      new Date(item.passwordResetExpires) > new Date() &&
+      (item.passwordResetOtpAttempts || 0) < PASSWORD_RESET_OTP_MAX_ATTEMPTS,
+    )
     if (user) {
       user.password = passwordHash
       user.authVersion = (user.authVersion || 0) + 1
-      user.passwordResetToken = undefined
+      user.passwordResetOtpHash = undefined
+      user.passwordResetOtpAttempts = 0
       user.passwordResetExpires = undefined
     }
   }
 
   if (!user) {
-    return res.status(400).json({ message: 'This password reset link is invalid or has expired.' })
+    return res.status(400).json({ message: 'This reset code is invalid or has expired.' })
   }
 
   if (!mongoConnected) save()

@@ -9,8 +9,10 @@ const userSchema = new mongoose.Schema(
     role: { type: String, enum: ['user', 'admin'], default: 'user' },
     status: { type: String, enum: ['active', 'deactivated', 'suspended'], default: 'active' },
     theme: { type: String, enum: ['light', 'dark'], default: 'light' },
-    passwordResetToken: { type: String, default: undefined },
+    passwordResetOtpHash: { type: String, default: undefined },
+    passwordResetOtpAttempts: { type: Number, default: 0 },
     passwordResetExpires: { type: Date, default: undefined },
+    passwordResetToken: { type: String, default: undefined },
   },
   { timestamps: true },
 )

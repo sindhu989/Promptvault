@@ -3,7 +3,6 @@ import './App.css'
 
 const API_URL =
   import.meta.env.VITE_API_URL || ''
-const legacyTokenKey = 'promptvault-token'
 const userKey = 'promptvault-user'
 
 function readStoredValue(key) {
@@ -61,12 +60,8 @@ function App() {
   const [user, setUser] = useState(() => readStoredValue(userKey))
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [sessionChecked, setSessionChecked] = useState(false)
-  const [resetToken, setResetToken] = useState(() =>
-    new URLSearchParams(window.location.hash.slice(1)).get('resetToken') ||
-    new URLSearchParams(window.location.search).get('resetToken') ||
-    '',
-  )
-  const [authMode, setAuthMode] = useState(() => resetToken ? 'reset' : 'login')
+  const [resetOtp, setResetOtp] = useState('')
+  const [authMode, setAuthMode] = useState('login')
   const [authMessage, setAuthMessage] = useState('')
   const [resetPasswordConfirm, setResetPasswordConfirm] = useState('')
   const [authForm, setAuthForm] = useState({
@@ -110,22 +105,8 @@ function App() {
   const featuredRoute = window.location.pathname === '/discover'
 
   useEffect(() => {
-    if (!resetToken) return
-    const resetUrl = new URL(window.location.href)
-    resetUrl.searchParams.delete('resetToken')
-    const hashParams = new URLSearchParams(resetUrl.hash.slice(1))
-    hashParams.delete('resetToken')
-    resetUrl.hash = hashParams.toString()
-    window.history.replaceState(
-      window.history.state,
-      '',
-      `${resetUrl.pathname}${resetUrl.search}${resetUrl.hash}`,
-    )
-  }, [resetToken])
-
-  useEffect(() => {
     try {
-      window.localStorage.removeItem(legacyTokenKey)
+      window.localStorage.removeItem('promptvault-token')
     } catch {}
 
     if (/^\/share\/(prompt|collection)\/[^/]+$/.test(window.location.pathname) || featuredRoute) return undefined
@@ -335,6 +316,8 @@ function App() {
         const data = await response.json()
         if (!response.ok) throw new Error(data.message || 'Could not request a password reset.')
         setAuthMessage(data.message)
+        setResetOtp('')
+        setAuthMode('reset')
         return
       }
 
@@ -346,12 +329,15 @@ function App() {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: resetToken, newPassword: authForm.password }),
+          body: JSON.stringify({
+            email: authForm.email,
+            otp: resetOtp,
+            newPassword: authForm.password,
+          }),
         })
         const data = await response.json()
         if (!response.ok) throw new Error(data.message || 'Could not reset your password.')
-        window.history.replaceState({}, document.title, window.location.pathname)
-        setResetToken('')
+        setResetOtp('')
         setAuthForm({ name: '', email: '', password: '' })
         setResetPasswordConfirm('')
         setAuthMode('login')
@@ -905,9 +891,9 @@ function App() {
       authMode === 'register'
         ? 'Start saving high-quality prompts in one clean workspace.'
         : authMode === 'forgot'
-          ? 'We’ll email a secure, one-time reset link if an account matches.'
+            ? 'We’ll email a one-time reset code if an account matches.'
           : authMode === 'reset'
-            ? 'Choose a new password for your PromptVault account.'
+              ? 'Enter the six-digit code from your email and choose a new password.'
             : 'Log in to organize and reuse your best prompts.'
 
     return (
@@ -956,6 +942,38 @@ function App() {
               </label>
             )}
 
+            {authMode === 'reset' && (
+              <>
+                <label className="form-field">
+                  <span>Email</span>
+                  <input
+                    type="email"
+                    autoComplete="email"
+                    value={authForm.email}
+                    onChange={(event) =>
+                      setAuthForm((current) => ({ ...current, email: event.target.value }))
+                    }
+                    placeholder="you@example.com"
+                    required
+                  />
+                </label>
+                <label className="form-field">
+                  <span>Six-digit reset code</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    pattern="[0-9]{6}"
+                    value={resetOtp}
+                    onChange={(event) => setResetOtp(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="Enter the code from your email"
+                    required
+                  />
+                </label>
+              </>
+            )}
+
             {authMode !== 'forgot' && (
               <label className="form-field">
                 <span>{authMode === 'reset' ? 'New password' : 'Password'}</span>
@@ -998,7 +1016,7 @@ function App() {
                   : authMode === 'register'
                     ? 'Create account'
                     : authMode === 'forgot'
-                      ? 'Send reset link'
+                      ? 'Send reset code'
                       : 'Reset password'}
             </button>
           </form>
@@ -1035,8 +1053,7 @@ function App() {
               className="auth-link"
               onClick={() => {
                 if (authMode === 'reset') {
-                  window.history.replaceState({}, document.title, window.location.pathname)
-                  setResetToken('')
+                  setResetOtp('')
                   setResetPasswordConfirm('')
                 }
                 setAuthMode('login')
@@ -1045,6 +1062,22 @@ function App() {
               }}
             >
               Back to log in
+            </button>
+          )}
+          {authMode === 'reset' && (
+            <button
+              type="button"
+              className="auth-link"
+              onClick={() => {
+                setAuthForm((current) => ({ ...current, password: '' }))
+                setResetPasswordConfirm('')
+                setResetOtp('')
+                setAuthMode('forgot')
+                setError('')
+                setAuthMessage('')
+              }}
+            >
+              Send another code
             </button>
           )}
           {(authMode === 'login' || authMode === 'register') && (
