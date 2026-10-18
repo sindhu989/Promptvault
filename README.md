@@ -70,6 +70,8 @@ include password hashes, reset-token hashes, or session-version fields.
 API responses use `Cache-Control: no-store` to prevent browsers and intermediary
 caches from retaining authentication or private account data.
 The application cannot be embedded in frames, reducing clickjacking risk.
+Camera, geolocation, microphone, payment, and USB browser features are disabled
+because the application does not require them.
 The API also limits each client IP to 300 requests per 15-minute window.
 Production deployments share counters through MongoDB, with expired counters
 removed automatically. Client IPs are HMAC-hashed before they are stored;

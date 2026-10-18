@@ -52,6 +52,13 @@ app.use(helmet({
     },
   },
 }))
+app.use((req, res, next) => {
+  res.set(
+    'Permissions-Policy',
+    'camera=(), geolocation=(), microphone=(), payment=(), usb=()',
+  )
+  return next()
+})
 app.use('/api', (req, res, next) => {
   res.set('Cache-Control', 'no-store')
   return next()
