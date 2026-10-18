@@ -1,6 +1,7 @@
 const express = require('express')
 const cors = require('cors')
 const cookieParser = require('cookie-parser')
+const { rateLimit } = require('express-rate-limit')
 const dotenv = require('dotenv')
 dotenv.config()
 
@@ -61,6 +62,14 @@ app.use((req, res, next) => {
   }
   return next()
 })
+app.use('/api', rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 300,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  skip: (req) => req.path === '/health',
+  message: { message: 'Too many requests. Please try again later.' },
+}))
 app.use(cookieParser())
 app.use(express.json({ limit: '1mb' }))
 
