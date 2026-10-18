@@ -41,12 +41,14 @@ const allowedOrigins = new Set([
 }))
 
 app.use(helmet({
+  xFrameOptions: { action: 'deny' },
   contentSecurityPolicy: {
     directives: {
       ...helmet.contentSecurityPolicy.getDefaultDirectives(),
       'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       'font-src': ["'self'", 'data:', 'https://fonts.gstatic.com'],
       'connect-src': ["'self'", ...allowedOrigins],
+      'frame-ancestors': ["'none'"],
     },
   },
 }))

@@ -53,6 +53,8 @@ test('security headers are enabled for the API', async () => {
   assert.equal(response.status, 200)
   assert.equal(response.headers.get('x-content-type-options'), 'nosniff')
   assert.ok(response.headers.get('content-security-policy'))
+  assert.match(response.headers.get('content-security-policy'), /frame-ancestors 'none'/)
+  assert.equal(response.headers.get('x-frame-options'), 'DENY')
   assert.equal(response.headers.get('referrer-policy'), 'no-referrer')
   assert.equal(response.headers.get('cache-control'), 'no-store')
 })
