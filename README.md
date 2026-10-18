@@ -69,9 +69,10 @@ Authentication responses use an explicit user-profile allowlist and never
 include password hashes, reset-token hashes, or session-version fields.
 API responses use `Cache-Control: no-store` to prevent browsers and intermediary
 caches from retaining authentication or private account data.
-The API also limits each client IP to 300 requests per 15-minute window on
-each running API instance; health checks are exempt, and authentication
-endpoints have stricter limits.
+The API also limits each client IP to 300 requests per 15-minute window.
+Production deployments share counters through MongoDB, with expired counters
+removed automatically; local development uses in-memory counters. Health
+checks are exempt, and authentication endpoints have stricter limits.
 User and admin login validate bounded string credentials and perform a dummy
 password-hash comparison for unknown accounts to reduce timing-based account
 enumeration. Failed login responses do not disclose whether an account is

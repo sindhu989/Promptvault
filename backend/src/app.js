@@ -9,6 +9,7 @@ const fs = require('fs')
 const helmet = require('helmet')
 const mongoose = require('mongoose')
 const path = require('path')
+const { MongoRateLimitStore } = require('./middleware/mongoRateLimitStore')
 const authRoutes = require('./routes/authRoutes')
 const promptRoutes = require('./routes/promptRoutes')
 const collectionRoutes = require('./routes/collectionRoutes')
@@ -20,6 +21,9 @@ const adminDashboardRoutes = require('./routes/adminDashboardRoutes')
 
 const app = express()
 if (process.env.NODE_ENV === 'production') app.set('trust proxy', 1)
+const apiRateLimitStore = process.env.MONGODB_URI
+  ? new MongoRateLimitStore()
+  : undefined
 const frontendBuildPath = path.resolve(__dirname, '../../frontend/dist')
 const frontendIndexPath = path.join(frontendBuildPath, 'index.html')
 const allowedOrigins = new Set([
@@ -62,14 +66,6 @@ app.use((req, res, next) => {
   }
   return next()
 })
-app.use('/api', rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 300,
-  standardHeaders: 'draft-8',
-  legacyHeaders: false,
-  skip: (req) => req.path === '/health',
-  message: { message: 'Too many requests. Please try again later.' },
-}))
 app.use(cookieParser())
 app.use(express.json({ limit: '1mb' }))
 
@@ -110,6 +106,15 @@ app.use('/api', (req, res, next) => {
   }
   return next()
 })
+
+app.use('/api', rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 300,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  store: apiRateLimitStore,
+  message: { message: 'Too many requests. Please try again later.' },
+}))
 
 app.use('/api/auth', authRoutes)
 app.use('/api/admin/auth', adminAuthRoutes)
