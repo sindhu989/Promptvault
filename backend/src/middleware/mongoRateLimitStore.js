@@ -5,9 +5,11 @@ class MongoRateLimitStore {
   constructor({
     getCollection = () => mongoose.connection.db.collection('api_rate_limits'),
     secret = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'dev-secret'),
+    namespace = 'api',
   } = {}) {
     this.getCollection = getCollection
     this.secret = secret
+    this.namespace = namespace
     this.windowMs = 0
     this.collection = null
     this.indexReady = null
@@ -17,7 +19,9 @@ class MongoRateLimitStore {
     if (!this.secret) {
       throw new Error('JWT_SECRET must be configured to persist API rate limits.')
     }
-    return crypto.createHmac('sha256', this.secret).update(key).digest('hex')
+    return crypto.createHmac('sha256', this.secret)
+      .update(`${this.namespace}:${key}`)
+      .digest('hex')
   }
 
   init(options) {

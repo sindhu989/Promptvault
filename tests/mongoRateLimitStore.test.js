@@ -34,7 +34,7 @@ test('Mongo rate-limit store shares counters and expires each IP window', async 
   }
   const secret = 'test-rate-limit-secret'
   const rawIp = '203.0.113.10'
-  const hashedIp = crypto.createHmac('sha256', secret).update(rawIp).digest('hex')
+  const hashedIp = crypto.createHmac('sha256', secret).update(`api:${rawIp}`).digest('hex')
   let collectionRequests = 0
   const getCollection = () => {
     collectionRequests += 1
@@ -69,6 +69,31 @@ test('Mongo rate-limit store shares counters and expires each IP window', async 
   assert.equal(records.get(hashedIp).totalHits, 0)
   await firstInstance.resetKey(rawIp)
   assert.equal(records.has(hashedIp), false)
+})
+
+test('Mongo rate-limit store isolates counters by namespace', async () => {
+  const keys = []
+  const store = new MongoRateLimitStore({
+    secret: 'test-rate-limit-secret',
+    namespace: 'admin-login',
+    getCollection: () => ({
+      createIndex: async () => {},
+      findOneAndUpdate: async ({ _id }) => {
+        keys.push(_id)
+        return { totalHits: 1, resetTime: new Date(Date.now() + 900_000) }
+      },
+    }),
+  })
+  store.init({ windowMs: 900_000 })
+
+  await store.increment('203.0.113.10')
+
+  assert.equal(
+    keys[0],
+    crypto.createHmac('sha256', 'test-rate-limit-secret')
+      .update('admin-login:203.0.113.10')
+      .digest('hex'),
+  )
 })
 
 test('Mongo rate-limit store requires a secret before storing client identifiers', async () => {

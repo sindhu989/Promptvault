@@ -1,5 +1,6 @@
 const express = require('express')
 const { rateLimit } = require('express-rate-limit')
+const { MongoRateLimitStore } = require('../middleware/mongoRateLimitStore')
 const { login, getMe } = require('../controllers/adminAuthController')
 const { protectAdmin, revokeAdminSession } = require('../middleware/adminAuth')
 
@@ -9,6 +10,9 @@ const adminLoginLimit = rateLimit({
   limit: 5,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
+  store: process.env.MONGODB_URI
+    ? new MongoRateLimitStore({ namespace: 'admin-login' })
+    : undefined,
   message: { message: 'Too many admin login attempts. Please try again later.' },
 })
 
