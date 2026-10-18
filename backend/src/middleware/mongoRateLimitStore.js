@@ -1,11 +1,23 @@
+const crypto = require('node:crypto')
 const mongoose = require('mongoose')
 
 class MongoRateLimitStore {
-  constructor({ getCollection = () => mongoose.connection.db.collection('api_rate_limits') } = {}) {
+  constructor({
+    getCollection = () => mongoose.connection.db.collection('api_rate_limits'),
+    secret = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'dev-secret'),
+  } = {}) {
     this.getCollection = getCollection
+    this.secret = secret
     this.windowMs = 0
     this.collection = null
     this.indexReady = null
+  }
+
+  hashKey(key) {
+    if (!this.secret) {
+      throw new Error('JWT_SECRET must be configured to persist API rate limits.')
+    }
+    return crypto.createHmac('sha256', this.secret).update(key).digest('hex')
   }
 
   init(options) {
@@ -26,6 +38,7 @@ class MongoRateLimitStore {
   }
 
   async increment(key) {
+    const hashedKey = this.hashKey(key)
     await this.ensureCollection()
     const now = new Date()
     const resetTime = new Date(now.getTime() + this.windowMs)
@@ -53,7 +66,7 @@ class MongoRateLimitStore {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         const result = await this.collection.findOneAndUpdate(
-          { _id: key },
+          { _id: hashedKey },
           update,
           { upsert: attempt === 0, returnDocument: 'after' },
         )
@@ -73,16 +86,18 @@ class MongoRateLimitStore {
   }
 
   async decrement(key) {
+    const hashedKey = this.hashKey(key)
     await this.ensureCollection()
     await this.collection.updateOne(
-      { _id: key, totalHits: { $gt: 0 } },
+      { _id: hashedKey, totalHits: { $gt: 0 } },
       { $inc: { totalHits: -1 } },
     )
   }
 
   async resetKey(key) {
+    const hashedKey = this.hashKey(key)
     await this.ensureCollection()
-    await this.collection.deleteOne({ _id: key })
+    await this.collection.deleteOne({ _id: hashedKey })
   }
 }
 

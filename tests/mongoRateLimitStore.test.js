@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict')
+const crypto = require('node:crypto')
 const { test } = require('node:test')
 const { MongoRateLimitStore } = require('../backend/src/middleware/mongoRateLimitStore')
 
@@ -6,9 +7,11 @@ test('Mongo rate-limit store shares counters and expires each IP window', async 
   const records = new Map()
   const indexes = []
   const updates = []
+  const counterKeys = []
   const collection = {
     createIndex: async (...args) => indexes.push(args),
     findOneAndUpdate: async ({ _id }, update, options) => {
+      counterKeys.push(_id)
       updates.push({ update, options })
       const now = new Date()
       const current = records.get(_id)
@@ -29,22 +32,27 @@ test('Mongo rate-limit store shares counters and expires each IP window', async 
     },
     deleteOne: async ({ _id }) => records.delete(_id),
   }
+  const secret = 'test-rate-limit-secret'
+  const rawIp = '203.0.113.10'
+  const hashedIp = crypto.createHmac('sha256', secret).update(rawIp).digest('hex')
   let collectionRequests = 0
   const getCollection = () => {
     collectionRequests += 1
     return collection
   }
-  const firstInstance = new MongoRateLimitStore({ getCollection })
-  const secondInstance = new MongoRateLimitStore({ getCollection })
+  const firstInstance = new MongoRateLimitStore({ getCollection, secret })
+  const secondInstance = new MongoRateLimitStore({ getCollection, secret })
 
   firstInstance.init({ windowMs: 900_000 })
   secondInstance.init({ windowMs: 900_000 })
   assert.equal(collectionRequests, 0)
 
-  const firstHit = await firstInstance.increment('203.0.113.10')
-  const secondHit = await secondInstance.increment('203.0.113.10')
+  const firstHit = await firstInstance.increment(rawIp)
+  const secondHit = await secondInstance.increment(rawIp)
   assert.equal(firstHit.totalHits, 1)
   assert.equal(secondHit.totalHits, 2)
+  assert.deepEqual(counterKeys, [hashedIp, hashedIp])
+  assert.equal(counterKeys.includes(rawIp), false)
   assert.equal(collectionRequests, 2)
   assert.deepEqual(indexes[0], [
     { resetTime: 1 },
@@ -53,12 +61,24 @@ test('Mongo rate-limit store shares counters and expires each IP window', async 
   assert.equal(updates[0].options.upsert, true)
   assert.ok(updates[0].update[0].$set.totalHits.$cond)
 
-  records.get('203.0.113.10').resetTime = new Date(Date.now() - 1)
-  const nextWindowHit = await firstInstance.increment('203.0.113.10')
+  records.get(hashedIp).resetTime = new Date(Date.now() - 1)
+  const nextWindowHit = await firstInstance.increment(rawIp)
   assert.equal(nextWindowHit.totalHits, 1)
 
-  await firstInstance.decrement('203.0.113.10')
-  assert.equal(records.get('203.0.113.10').totalHits, 0)
-  await firstInstance.resetKey('203.0.113.10')
-  assert.equal(records.has('203.0.113.10'), false)
+  await firstInstance.decrement(rawIp)
+  assert.equal(records.get(hashedIp).totalHits, 0)
+  await firstInstance.resetKey(rawIp)
+  assert.equal(records.has(hashedIp), false)
+})
+
+test('Mongo rate-limit store requires a secret before storing client identifiers', async () => {
+  const store = new MongoRateLimitStore({
+    secret: '',
+    getCollection: () => ({
+      createIndex: async () => {},
+    }),
+  })
+  store.init({ windowMs: 900_000 })
+
+  await assert.rejects(store.increment('203.0.113.10'), /JWT_SECRET must be configured/)
 })

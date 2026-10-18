@@ -71,8 +71,9 @@ API responses use `Cache-Control: no-store` to prevent browsers and intermediary
 caches from retaining authentication or private account data.
 The API also limits each client IP to 300 requests per 15-minute window.
 Production deployments share counters through MongoDB, with expired counters
-removed automatically; local development uses in-memory counters. Health
-checks are exempt, and authentication endpoints have stricter limits.
+removed automatically. Client IPs are HMAC-hashed before they are stored;
+local development uses in-memory counters. Health checks are exempt, and
+authentication endpoints have stricter limits.
 User and admin login validate bounded string credentials and perform a dummy
 password-hash comparison for unknown accounts to reduce timing-based account
 enumeration. Failed login responses do not disclose whether an account is
