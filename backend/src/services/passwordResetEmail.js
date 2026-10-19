@@ -29,7 +29,19 @@ async function sendPasswordResetEmail(email, name, otp) {
   })
 
   if (!response.ok) {
-    throw new Error(`EmailJS returned HTTP ${response.status}.`)
+    const providerMessage = (await response.text())
+      .replace(/[\u0000-\u001f\u007f]/g, ' ')
+      .slice(0, 500)
+      .trim()
+    const safeProviderMessage = [email, name, otp, serviceId, templateId, publicKey, privateKey]
+      .filter((value) => typeof value === 'string' && value.length > 0)
+      .reduce(
+        (message, secret) => message.split(secret).join('[redacted]'),
+        providerMessage,
+      )
+    throw new Error(
+      `EmailJS returned HTTP ${response.status}${safeProviderMessage ? `: ${safeProviderMessage}` : '.'}`,
+    )
   }
 }
 

@@ -7,6 +7,7 @@ const app = require('../backend/src/app')
 const { activities, adminSessions, collections, prompts, users } = require('../backend/src/data/store')
 const Prompt = require('../backend/src/models/Prompt')
 const User = require('../backend/src/models/User')
+const { sendPasswordResetEmail } = require('../backend/src/services/passwordResetEmail')
 const {
   adminCookieName,
   setAdminCookie,
@@ -61,6 +62,48 @@ test('security headers are enabled for the API', async () => {
   )
   assert.equal(response.headers.get('referrer-policy'), 'no-referrer')
   assert.equal(response.headers.get('cache-control'), 'no-store')
+})
+
+test('EmailJS delivery errors expose provider diagnostics without logging secrets', async () => {
+  const environment = {
+    EMAILJS_SERVICE_ID: process.env.EMAILJS_SERVICE_ID,
+    EMAILJS_TEMPLATE_ID: process.env.EMAILJS_TEMPLATE_ID,
+    EMAILJS_PUBLIC_KEY: process.env.EMAILJS_PUBLIC_KEY,
+    EMAILJS_PRIVATE_KEY: process.env.EMAILJS_PRIVATE_KEY,
+  }
+  const originalFetch = global.fetch
+  const email = 'recipient@example.test'
+  const otp = '123456'
+  const privateKey = 'private-test-key'
+  process.env.EMAILJS_SERVICE_ID = 'service-test'
+  process.env.EMAILJS_TEMPLATE_ID = 'template-test'
+  process.env.EMAILJS_PUBLIC_KEY = 'public-test-key'
+  process.env.EMAILJS_PRIVATE_KEY = privateKey
+  global.fetch = async () => ({
+    ok: false,
+    status: 403,
+    text: async () => `Unauthorized ${privateKey} ${email} ${otp}`,
+  })
+
+  try {
+    await assert.rejects(
+      sendPasswordResetEmail(email, 'Test User', otp),
+      (error) => {
+        assert.match(error.message, /HTTP 403/)
+        assert.match(error.message, /Unauthorized/)
+        assert.doesNotMatch(error.message, new RegExp(privateKey))
+        assert.doesNotMatch(error.message, new RegExp(email))
+        assert.doesNotMatch(error.message, new RegExp(otp))
+        return true
+      },
+    )
+  } finally {
+    global.fetch = originalFetch
+    for (const [key, value] of Object.entries(environment)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
 })
 
 test('health check reports MongoDB outages as unavailable', async () => {
