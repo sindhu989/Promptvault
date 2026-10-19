@@ -411,8 +411,10 @@ test('password reset OTPs are emailed, hashed, expire, and can only be consumed 
     status: 'active',
   }
   const previousEnvironment = {
-    resendApiKey: process.env.RESEND_API_KEY,
-    resendFrom: process.env.RESEND_FROM,
+    emailJsServiceId: process.env.EMAILJS_SERVICE_ID,
+    emailJsTemplateId: process.env.EMAILJS_TEMPLATE_ID,
+    emailJsPublicKey: process.env.EMAILJS_PUBLIC_KEY,
+    emailJsPrivateKey: process.env.EMAILJS_PRIVATE_KEY,
   }
   const previousReadyState = mongoose.connection.readyState
   const originalFetch = global.fetch
@@ -423,14 +425,16 @@ test('password reset OTPs are emailed, hashed, expire, and can only be consumed 
   }
   let emailPayload
   users.push(user)
-  process.env.RESEND_API_KEY = 'test-resend-api-key'
-  process.env.RESEND_FROM = 'PromptVault <test@example.com>'
+  process.env.EMAILJS_SERVICE_ID = 'test-emailjs-service'
+  process.env.EMAILJS_TEMPLATE_ID = 'test-emailjs-template'
+  process.env.EMAILJS_PUBLIC_KEY = 'test-emailjs-public-key'
+  process.env.EMAILJS_PRIVATE_KEY = 'test-emailjs-private-key'
   mongoose.connection.readyState = 0
   fs.mkdirSync = () => {}
   fs.writeFileSync = () => {}
   fs.renameSync = () => {}
   global.fetch = async (url, options) => {
-    assert.equal(url, 'https://api.resend.com/emails')
+    assert.equal(url, 'https://api.emailjs.com/api/v1.0/email/send')
     emailPayload = JSON.parse(options.body)
     return { ok: true }
   }
@@ -442,8 +446,14 @@ test('password reset OTPs are emailed, hashed, expire, and can only be consumed 
       body: JSON.stringify({ email: user.email }),
     })
     assert.equal(requestResponse.status, 200)
-    assert.match(emailPayload.text, /15 minutes/)
-    const otp = emailPayload.text.match(/\n\n(\d{6})\n\n/)[1]
+    assert.equal(emailPayload.service_id, 'test-emailjs-service')
+    assert.equal(emailPayload.template_id, 'test-emailjs-template')
+    assert.equal(emailPayload.user_id, 'test-emailjs-public-key')
+    assert.equal(emailPayload.accessToken, 'test-emailjs-private-key')
+    assert.equal(emailPayload.template_params.to_email, user.email)
+    assert.equal(emailPayload.template_params.validity, '15 minutes')
+    const otp = emailPayload.template_params.otp
+    assert.match(otp, /^\d{6}$/)
     assert.match(user.passwordResetOtpHash, /^[a-f0-9]{64}$/)
     assert.notEqual(user.passwordResetOtpHash, otp)
     assert.ok(new Date(user.passwordResetExpires).getTime() - Date.now() <= 15 * 60 * 1000)
@@ -475,8 +485,10 @@ test('password reset OTPs are emailed, hashed, expire, and can only be consumed 
     fs.renameSync = originalFsMethods.renameSync
     mongoose.connection.readyState = previousReadyState
     for (const [key, value] of [
-      ['RESEND_API_KEY', previousEnvironment.resendApiKey],
-      ['RESEND_FROM', previousEnvironment.resendFrom],
+      ['EMAILJS_SERVICE_ID', previousEnvironment.emailJsServiceId],
+      ['EMAILJS_TEMPLATE_ID', previousEnvironment.emailJsTemplateId],
+      ['EMAILJS_PUBLIC_KEY', previousEnvironment.emailJsPublicKey],
+      ['EMAILJS_PRIVATE_KEY', previousEnvironment.emailJsPrivateKey],
     ]) {
       if (value === undefined) delete process.env[key]
       else process.env[key] = value
@@ -494,8 +506,10 @@ test('password reset requests persist hashed OTPs through MongoDB model updates'
   }
   const previousEnvironment = {
     mongoUri: process.env.MONGODB_URI,
-    resendApiKey: process.env.RESEND_API_KEY,
-    resendFrom: process.env.RESEND_FROM,
+    emailJsServiceId: process.env.EMAILJS_SERVICE_ID,
+    emailJsTemplateId: process.env.EMAILJS_TEMPLATE_ID,
+    emailJsPublicKey: process.env.EMAILJS_PUBLIC_KEY,
+    emailJsPrivateKey: process.env.EMAILJS_PRIVATE_KEY,
   }
   const previousReadyState = mongoose.connection.readyState
   const originalFindOne = User.findOne
@@ -507,8 +521,10 @@ test('password reset requests persist hashed OTPs through MongoDB model updates'
   const updates = []
 
   process.env.MONGODB_URI = 'mongodb://unit-test.invalid/promptvault'
-  process.env.RESEND_API_KEY = 'test-resend-api-key'
-  process.env.RESEND_FROM = 'PromptVault <test@example.com>'
+  process.env.EMAILJS_SERVICE_ID = 'test-emailjs-service'
+  process.env.EMAILJS_TEMPLATE_ID = 'test-emailjs-template'
+  process.env.EMAILJS_PUBLIC_KEY = 'test-emailjs-public-key'
+  process.env.EMAILJS_PRIVATE_KEY = 'test-emailjs-private-key'
   mongoose.connection.readyState = 1
   User.findOne = () => ({
     select: () => ({ lean: async () => ({ ...user, passwordResetOtpHash: storedOtpHash }) }),
@@ -527,7 +543,7 @@ test('password reset requests persist hashed OTPs through MongoDB model updates'
     return { lean: async () => ({ _id: user._id }) }
   }
   global.fetch = async (url, options) => {
-    assert.equal(url, 'https://api.resend.com/emails')
+    assert.equal(url, 'https://api.emailjs.com/api/v1.0/email/send')
     emailPayload = JSON.parse(options.body)
     return { ok: true }
   }
@@ -545,7 +561,7 @@ test('password reset requests persist hashed OTPs through MongoDB model updates'
     assert.match(storedHash, /^[a-f0-9]{64}$/)
     assert.equal(updates[0].update.$set.passwordResetOtpAttempts, 0)
     assert.ok(updates[0].update.$set.passwordResetExpires instanceof Date)
-    const otp = emailPayload.text.match(/\n\n(\d{6})\n\n/)[1]
+    const otp = emailPayload.template_params.otp
     assert.notEqual(storedHash, otp)
 
     const resetResponse = await originalFetch(`${baseUrl}/api/auth/reset-password`, {
@@ -572,8 +588,10 @@ test('password reset requests persist hashed OTPs through MongoDB model updates'
     mongoose.connection.readyState = previousReadyState
     for (const [key, value] of [
       ['MONGODB_URI', previousEnvironment.mongoUri],
-      ['RESEND_API_KEY', previousEnvironment.resendApiKey],
-      ['RESEND_FROM', previousEnvironment.resendFrom],
+      ['EMAILJS_SERVICE_ID', previousEnvironment.emailJsServiceId],
+      ['EMAILJS_TEMPLATE_ID', previousEnvironment.emailJsTemplateId],
+      ['EMAILJS_PUBLIC_KEY', previousEnvironment.emailJsPublicKey],
+      ['EMAILJS_PRIVATE_KEY', previousEnvironment.emailJsPrivateKey],
     ]) {
       if (value === undefined) delete process.env[key]
       else process.env[key] = value

@@ -3,16 +3,6 @@ import './App.css'
 
 const API_URL =
   import.meta.env.VITE_API_URL || ''
-const userKey = 'promptvault-user'
-
-function readStoredValue(key) {
-  try {
-    const value = window.localStorage.getItem(key)
-    return value ? JSON.parse(value) : null
-  } catch {
-    return null
-  }
-}
 
 function formatDate(date) {
   if (!date) return '—'
@@ -57,7 +47,7 @@ function promptVariables(content) {
 }
 
 function App() {
-  const [user, setUser] = useState(() => readStoredValue(userKey))
+  const [user, setUser] = useState(null)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [sessionChecked, setSessionChecked] = useState(false)
   const [resetOtp, setResetOtp] = useState('')
@@ -105,10 +95,6 @@ function App() {
   const featuredRoute = window.location.pathname === '/discover'
 
   useEffect(() => {
-    try {
-      window.localStorage.removeItem('promptvault-token')
-    } catch {}
-
     if (/^\/share\/(prompt|collection)\/[^/]+$/.test(window.location.pathname) || featuredRoute) return undefined
 
     let active = true
@@ -120,16 +106,12 @@ function App() {
         const data = await response.json()
         if (!active) return
         if (response.status === 401) {
-          window.localStorage.removeItem(userKey)
           setUser(null)
           return
         }
         if (!response.ok) throw new Error(data.message || 'Could not verify your session.')
         setUser(data.user)
         setIsAuthenticated(true)
-        try {
-          window.localStorage.setItem(userKey, JSON.stringify(data.user))
-        } catch {}
       } catch (sessionError) {
         if (active) setError(sessionError.message || 'Could not verify your session.')
       } finally {
@@ -264,10 +246,6 @@ function App() {
     setIsAuthenticated(true)
     setSessionChecked(true)
     setUser(nextUser)
-
-    try {
-      window.localStorage.setItem(userKey, JSON.stringify(nextUser))
-    } catch {}
   }
 
   function logout() {
@@ -280,10 +258,6 @@ function App() {
     setSelectedCollection(null)
     setCollectionPromptIds([])
     setAuthMode('login')
-
-    try {
-      window.localStorage.removeItem(userKey)
-    } catch {}
   }
 
   async function endSession() {
@@ -426,9 +400,6 @@ function App() {
       body: JSON.stringify({ name }),
     })
     setUser(data.user)
-    try {
-      window.localStorage.setItem(userKey, JSON.stringify(data.user))
-    } catch {}
     setProfileDialog(false)
     setNotice('Profile updated.')
   }
@@ -440,9 +411,6 @@ function App() {
       body: JSON.stringify({ theme }),
     })
     setUser(data.user)
-    try {
-      window.localStorage.setItem(userKey, JSON.stringify(data.user))
-    } catch {}
     setNotice(`Theme changed to ${theme}.`)
   }
 

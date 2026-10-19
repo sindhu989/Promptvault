@@ -21,7 +21,7 @@ Phase 7 — prompt duplicate and archive/restore: complete.
 Phase 8 — collections and read-only sharing: complete.
 Phase 9 — profile display name editing: complete.
 Phase 10 — authenticated password change: complete.
-Phase 11 — email password recovery: implemented; configure Resend to enable delivery.
+Phase 11 — email password recovery: implemented; configure EmailJS to enable delivery.
 Phase 12 — private prompt and collection backup export: complete.
 Phase 13 — validated prompt import and multi-format export: complete.
 Phase 14 — authenticated activity history: complete.
@@ -120,8 +120,7 @@ Password recovery sends a six-digit, one-time code that expires after 15
 minutes. The backend stores only an HMAC of the code, limits verification
 attempts, and consumes valid codes atomically so concurrent reset requests
 cannot reuse one. Reset request and submission routes are rate-limited.
-Recovery email is sent through Resend only after the sender domain is verified
-and the service is configured.
+Recovery email is sent through EmailJS when the backend service is configured.
 
 The backend includes Express routes, HTTP-only cookie authentication, and prompt
 CRUD operations. It supports a real MongoDB connection when `MONGODB_URI` is set.
@@ -268,11 +267,14 @@ the strict session cookies to be sent; keep both on the same origin when possibl
 
 ### Enable password-reset email
 
-Email recovery requires a Resend account and a sender domain verified with
-Resend. In Render's **Environment** settings, add `RESEND_API_KEY` and
-`RESEND_FROM` using the verified sender address, for example
-`PromptVault <no-reply@yourdomain.com>`. Password-reset messages contain a
-six-digit code valid for 15 minutes. Keep the API key private. Reset requests
-always use the same public response to prevent account discovery; email
-delivery failures are reported in the backend logs. Login and other app
-features continue to work without email settings.
+Configure an EmailJS email service and a password-reset template. In Render's
+backend **Environment** settings, set `EMAILJS_SERVICE_ID`,
+`EMAILJS_TEMPLATE_ID`, `EMAILJS_PUBLIC_KEY`, and `EMAILJS_PRIVATE_KEY`.
+Configure the template's recipient as `{{to_email}}`; its message can use
+`{{to_name}}`, `{{otp}}`, `{{validity}}`, and `{{product_name}}`. Keep the
+private key only in backend environment variables. Password-reset messages
+contain a six-digit code valid for 15 minutes. Reset requests always use the
+same public response to prevent account discovery; delivery failures are
+reported in backend logs. EmailJS documents a limit of one send request per
+second, so configure account-wide sending limits accordingly. Login and other
+app features continue to work without email settings.

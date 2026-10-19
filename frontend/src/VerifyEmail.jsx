@@ -4,12 +4,12 @@ import './VerifyEmail.css'
 const EMAILJS_PUBLIC_KEY = 'jBaRIsY0Mi4jEvRft'
 const EMAILJS_SERVICE_ID = 'service_fgd57hn'
 const EMAILJS_TEMPLATE_ID = 'template_r8jcg5h'
-const PENDING_OTP_KEY = 'promptvault-pending-email-verification'
 const OTP_VALIDITY_MS = 15 * 60 * 1000
+let pendingVerificationMemory = null
 
 function readPendingVerification() {
   try {
-    const pending = JSON.parse(window.sessionStorage.getItem(PENDING_OTP_KEY) || 'null')
+    const pending = pendingVerificationMemory
     if (
       pending &&
       typeof pending.name === 'string' &&
@@ -21,9 +21,9 @@ function readPendingVerification() {
     ) {
       return pending
     }
-    window.sessionStorage.removeItem(PENDING_OTP_KEY)
+    pendingVerificationMemory = null
   } catch {
-    window.sessionStorage.removeItem(PENDING_OTP_KEY)
+    pendingVerificationMemory = null
   }
   return null
 }
@@ -100,7 +100,7 @@ function VerifyEmail() {
         otp: code,
         expiresAt: Date.now() + OTP_VALIDITY_MS,
       }
-      window.sessionStorage.setItem(PENDING_OTP_KEY, JSON.stringify(pending))
+      pendingVerificationMemory = pending
       setGeneratedOtp(code)
       setStep('code')
       setMessage(`A verification code was sent to ${email}.`)
@@ -133,7 +133,7 @@ function VerifyEmail() {
       setError('That code doesn’t match. Check your email and try again.')
       return
     }
-    window.sessionStorage.removeItem(PENDING_OTP_KEY)
+    pendingVerificationMemory = null
     setVerified(true)
   }
 
@@ -262,7 +262,7 @@ function VerifyEmail() {
                   <button
                     className="verify-edit-link"
                     onClick={() => {
-                      window.sessionStorage.removeItem(PENDING_OTP_KEY)
+                      pendingVerificationMemory = null
                       setGeneratedOtp('')
                       setMessage('')
                       setStep('details')
